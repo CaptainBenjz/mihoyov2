@@ -89,6 +89,16 @@ def t(key: str, lang: str | None = None, /, **kwargs: object) -> str:
     return value
 
 
+def preload_locales() -> None:
+    """Load and cache every registered locale once (call at startup).
+
+    Locales are already memoized by :func:`_load_locale`; this just warms the cache so the
+    first translation lookup in a command doesn't pay the file-read + JSON-parse cost.
+    """
+    for code in LANGUAGES:
+        _load_locale(code)
+
+
 def clear_cache() -> None:
     """Clear the locale cache (useful in tests / hot-reload)."""
     _load_locale.cache_clear()

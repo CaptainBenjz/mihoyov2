@@ -42,12 +42,19 @@ class AppContext:
     build_service: BuildService
     stats_service: StatsService
     artwork_service: ArtworkService
+    akasha: AkashaClient  # held so its pooled HTTP session can be closed on shutdown
     renderer: Renderer
     started_at: float
 
     async def language_for(self, telegram_user_id: int) -> str:
         """Resolve a user's preferred language (defaulting to the configured default)."""
         return await self.users.get_language(telegram_user_id, self.settings.default_language)
+
+    async def aclose(self) -> None:
+        """Release shared resources (Redis pool + pooled HTTP sessions). Never raises."""
+        await self.redis.close()
+        await self.artwork_service.aclose()
+        await self.akasha.aclose()
 
 
 def build_app_context(settings: Settings | None = None) -> AppContext:
@@ -84,6 +91,7 @@ def build_app_context(settings: Settings | None = None) -> AppContext:
         build_service=build_service,
         stats_service=stats_service,
         artwork_service=artwork_service,
+        akasha=akasha,
         renderer=get_renderer(),
         started_at=started_at,
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 
 from telegram import Update
@@ -11,6 +12,7 @@ from telegram.ext import ContextTypes
 from bot.commands.common import get_app, guard, resolve_language, user_id_of
 from bot.renderer.context import AbyssCardContext
 from bot.translations.i18n import t
+from bot.utils.timing import atimed
 
 
 async def _load(update: Update, context: ContextTypes.DEFAULT_TYPE, *, previous: bool):
@@ -48,12 +50,20 @@ async def pre_abyss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @guard
 async def abyss_card(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app, lang, showcase, data = await _load(update, context, previous=False)
-    png = app.renderer.render_abyss_card(AbyssCardContext(language=lang, abyss=data, player=showcase.player))
+    async with atimed("render.abyss_card"):
+        png = await asyncio.to_thread(
+            app.renderer.render_abyss_card,
+            AbyssCardContext(language=lang, abyss=data, player=showcase.player),
+        )
     await update.message.reply_photo(photo=io.BytesIO(png))
 
 
 @guard
 async def pre_abyss_card(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app, lang, showcase, data = await _load(update, context, previous=True)
-    png = app.renderer.render_abyss_card(AbyssCardContext(language=lang, abyss=data, player=showcase.player))
+    async with atimed("render.abyss_card"):
+        png = await asyncio.to_thread(
+            app.renderer.render_abyss_card,
+            AbyssCardContext(language=lang, abyss=data, player=showcase.player),
+        )
     await update.message.reply_photo(photo=io.BytesIO(png))

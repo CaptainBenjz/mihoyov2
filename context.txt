@@ -72,6 +72,28 @@ KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
 -------------------------------------------------------------------------------
 FIX HISTORY
 -------------------------------------------------------------------------------
+2026-07-22  Session 4 (performance optimization):
+  Bottlenecks: (B1) enka+akasha fetched sequentially; (B2/B3) new aiohttp session per
+  artwork icon and per akasha call (TCP+TLS handshake each time); (B4) card template
+  re-decoded from disk every render; (B5) banners/build_guides JSON re-read+parsed every
+  command on the loop; (B6) sync Pillow render ran on the event loop (blocked all users);
+  (B7) no startup warmup.
+  Fixes (behavior preserved):
+   - character_service._fetch_concurrently: enka+akasha via asyncio.gather (enka error
+     still propagates, akasha best-effort). Fresh fetch ~1100ms -> ~600ms.
+   - artwork_service + akasha_client: single pooled aiohttp session (TCPConnector) reused,
+     closed via AppContext.aclose() on shutdown; AppContext gained `akasha` field.
+   - pillow_renderer._template_base: template decoded once, .copy() per render.
+   - banner_service/build_service: JSON read+parsed once, cached in memory.
+   - characters/abyss/theater: render via asyncio.to_thread (off event loop) + timing;
+     profile-card portrait+icons prefetched concurrently.
+   - startup warmup: i18n.preload_locales() + renderer.warmup() in _post_init.
+   - bot/utils/timing.py (timed/atimed -> bot.perf logger); guard() logs "<cmd> total: Nms".
+  Tests: tests/test_performance.py (7). Full suite 118 passed.
+  External limits: enka/akasha API latency dominates fresh fetches; ~170ms Pillow render is
+  CPU-bound (now off-loop); enka library opens its own per-call client. See
+  PERFORMANCE_REPORT.md.
+
 2026-07-22  Session 3 (deployment debug):
   ROOT CAUSE of "deploys but no commands / crashes after switching Upstash DB":
   redis.from_url() raises ValueError (NOT RedisError) for a non-redis scheme — e.g. the

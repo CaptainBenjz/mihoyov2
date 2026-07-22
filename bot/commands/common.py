@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import time
 from typing import Awaitable, Callable
 
 from telegram import Update
@@ -15,6 +16,7 @@ from bot.translations.i18n import t
 from bot.utils.errors import BotError
 from bot.utils.logging import get_logger
 from bot.utils.text import strip_custom_emoji
+from bot.utils.timing import perf_logger
 
 logger = get_logger(__name__)
 
@@ -55,6 +57,7 @@ def guard(handler: HandlerFn) -> HandlerFn:
 
     @functools.wraps(handler)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        start = time.perf_counter()
         try:
             await handler(update, context)
         except BotError as exc:
@@ -65,6 +68,8 @@ def guard(handler: HandlerFn) -> HandlerFn:
             lang = await _safe_lang(update, context)
             logger.exception("Unexpected error in %s", handler.__name__)
             await reply(update, t("error.generic", lang))
+        finally:
+            perf_logger.info("%s total: %.0f ms", handler.__name__, (time.perf_counter() - start) * 1000)
 
     return wrapper
 

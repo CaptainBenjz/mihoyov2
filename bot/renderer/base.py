@@ -35,6 +35,15 @@ class Renderer(ABC):
     def render_theater_card(self, ctx: TheaterCardContext) -> bytes:
         ...
 
+    def warmup(self) -> None:
+        """Pre-load static rendering resources into memory at startup. Default: no-op.
+
+        Backends may override to decode the card template and common fonts once, so the
+        first real render is not slowed by cold caches and concurrent renders never race
+        to populate them.
+        """
+        return None
+
 
 _default_renderer: Renderer | None = None
 

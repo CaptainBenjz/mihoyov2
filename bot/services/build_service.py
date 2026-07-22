@@ -21,6 +21,7 @@ _RESOURCE = Path(__file__).resolve().parent.parent / "resources" / "build_guides
 class BuildService:
     def __init__(self, resource_path: Path | None = None) -> None:
         self._path = resource_path or _RESOURCE
+        self._cache: dict[str, Any] | None = None
 
     async def get_guide(self, character_name: str | None = None) -> dict[str, Any]:
         """Return a build guide for a character, or the default guide.
@@ -35,9 +36,17 @@ class BuildService:
         return data.get("_default", {})
 
     def _read(self) -> dict[str, Any]:
+        """Read the bundled build-guides resource once and cache it in memory.
+
+        Static bundled file — re-reading + re-parsing it on every ``/build_guide`` command
+        was pointless blocking I/O on the event loop.
+        """
+        if self._cache is not None:
+            return self._cache
         try:
             with self._path.open(encoding="utf-8") as fh:
-                return json.load(fh)
+                self._cache = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Failed to read build guides resource: %s", exc)
-            return {}
+            self._cache = {}
+        return self._cache

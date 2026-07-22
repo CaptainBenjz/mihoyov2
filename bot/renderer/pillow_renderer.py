@@ -50,6 +50,16 @@ class PillowRenderer(Renderer):
         self._assets = assets or get_asset_loader()
         self._font_cache: dict[int, ImageFont.ImageFont] = {}
 
+    def warmup(self) -> None:
+        """Decode the card template and common font sizes once, at startup."""
+        try:
+            self._template_base()  # populates the in-memory template cache
+            for size in (20, 24, 28, 34, 40):
+                self._pfont(size)
+            logger.info("Renderer warmup complete (template + fonts cached)")
+        except Exception as exc:  # noqa: BLE001 - warmup is best-effort
+            logger.debug("Renderer warmup skipped: %s", exc)
+
     # -- fonts -------------------------------------------------------------
     def _font(self, size: int) -> ImageFont.ImageFont:
         if size not in self._font_cache:
@@ -252,18 +262,32 @@ class PillowRenderer(Renderer):
             return None
         return max(candidates) * 100.0
 
+    def _template_base(self) -> Image.Image:
+        """Return a fresh copy of the card template, decoded+resized only once.
+
+        The template is a static asset; decoding and resizing it on every render was a
+        repeated disk read + JPEG decode. We cache the prepared RGBA image in memory and
+        return a ``.copy()`` so each render can safely composite onto its own canvas.
+        """
+        cached = getattr(self, "_template_cache", None)
+        if cached is None:
+            try:
+                base = Image.open(bootstrap.template_path()).convert("RGBA")
+                if base.size != card_layout.CARD_SIZE:
+                    base = base.resize(card_layout.CARD_SIZE)
+            except Exception as exc:  # noqa: BLE001 - template missing -> minimal fallback
+                logger.warning("Card template missing (%s); using flat canvas", exc)
+                base = Image.new("RGBA", card_layout.CARD_SIZE, (32, 30, 40, 255))
+            cached = base
+            self._template_cache = cached
+        return cached.copy()
+
     def render_profile_card(self, ctx: CharacterCardContext) -> bytes:
         c = ctx.character
         theme = card_layout.theme_for(c.element if c else None)
 
-        # Base canvas: the downloaded template (never regenerated). Fallback: flat panel.
-        try:
-            base = Image.open(bootstrap.template_path()).convert("RGBA")
-            if base.size != card_layout.CARD_SIZE:
-                base = base.resize(card_layout.CARD_SIZE)
-        except Exception as exc:  # noqa: BLE001 - template missing -> minimal fallback
-            logger.warning("Card template missing (%s); using flat canvas", exc)
-            base = Image.new("RGBA", card_layout.CARD_SIZE, (32, 30, 40, 255))
+        # Base canvas: the cached template (decoded once). Fallback handled in the helper.
+        base = self._template_base()
 
         # Element background tint across the whole card ("green character -> green card").
         tint = Image.new("RGBA", card_layout.CARD_SIZE, (*theme["bg"], 60))

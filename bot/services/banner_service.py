@@ -21,6 +21,7 @@ _RESOURCE = Path(__file__).resolve().parent.parent / "resources" / "banners.json
 class BannerService:
     def __init__(self, resource_path: Path | None = None) -> None:
         self._path = resource_path or _RESOURCE
+        self._cache: dict | None = None
 
     async def get_banners(self) -> BannerBoard:
         data = self._read()
@@ -30,12 +31,20 @@ class BannerService:
         )
 
     def _read(self) -> dict:
+        """Read the bundled banners resource once and cache it in memory.
+
+        It is a static bundled file, so re-reading + re-parsing it from disk on every
+        ``/banner`` command was pointless blocking I/O on the event loop.
+        """
+        if self._cache is not None:
+            return self._cache
         try:
             with self._path.open(encoding="utf-8") as fh:
-                return json.load(fh)
+                self._cache = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Failed to read banners resource: %s", exc)
-            return {}
+            self._cache = {}
+        return self._cache
 
     @staticmethod
     def _to_banner(raw: dict) -> Banner:

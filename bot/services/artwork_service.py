@@ -9,6 +9,7 @@ failure the service returns ``None`` and the renderer shows the empty portrait f
 
 from __future__ import annotations
 
+import asyncio
 import io
 from pathlib import Path
 
@@ -21,10 +22,38 @@ from bot.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+_HEADERS = {"User-Agent": "Mozilla/5.0 (MihoyoBot)"}
+
 
 class ArtworkService:
     def __init__(self) -> None:
         self._cache_dir = get_settings().assets_path / "characters"
+        # A single pooled session is reused for every artwork/icon download instead of
+        # opening a fresh TCP+TLS connection per image. Created lazily inside the running
+        # event loop and closed on shutdown.
+        self._session: aiohttp.ClientSession | None = None
+        self._session_lock = asyncio.Lock()
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            async with self._session_lock:
+                if self._session is None or self._session.closed:
+                    connector = aiohttp.TCPConnector(limit=32, ttl_dns_cache=300)
+                    self._session = aiohttp.ClientSession(
+                        headers=_HEADERS,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                        connector=connector,
+                    )
+        return self._session
+
+    async def aclose(self) -> None:
+        """Close the shared HTTP session (called on shutdown). Never raises."""
+        if self._session is not None and not self._session.closed:
+            try:
+                await self._session.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._session = None
 
     def _candidate_urls(self, character: Character) -> list[str]:
         """Prefer full splash art, then the front portrait icon."""
@@ -103,11 +132,10 @@ class ArtworkService:
 
     async def _download_image(self, url: str) -> Image.Image | None:
         try:
-            headers = {"User-Agent": "Mozilla/5.0 (MihoyoBot)"}
-            async with aiohttp.ClientSession(headers=headers) as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                    resp.raise_for_status()
-                    data = await resp.read()
+            session = await self._get_session()
+            async with session.get(url) as resp:
+                resp.raise_for_status()
+                data = await resp.read()
             return Image.open(io.BytesIO(data)).convert("RGBA")
         except Exception as exc:  # noqa: BLE001 - best effort
             logger.debug("Artwork download failed (%s): %s", url, exc)

@@ -11,6 +11,7 @@ Returns a mapping of character id (str) -> :class:`bot.models.ranking.Ranking`.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import aiohttp
@@ -36,6 +37,33 @@ _HEADERS = {
 class AkashaClient:
     """Best-effort Akasha ranking client. Never raises to callers."""
 
+    def __init__(self) -> None:
+        # One pooled session reused across ranking requests (avoids a new TCP+TLS
+        # handshake per call). Created lazily inside the loop, closed on shutdown.
+        self._session: aiohttp.ClientSession | None = None
+        self._session_lock = asyncio.Lock()
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            async with self._session_lock:
+                if self._session is None or self._session.closed:
+                    connector = aiohttp.TCPConnector(limit=16, ttl_dns_cache=300)
+                    self._session = aiohttp.ClientSession(
+                        headers=_HEADERS,
+                        timeout=aiohttp.ClientTimeout(total=20),
+                        connector=connector,
+                    )
+        return self._session
+
+    async def aclose(self) -> None:
+        """Close the shared HTTP session (called on shutdown). Never raises."""
+        if self._session is not None and not self._session.closed:
+            try:
+                await self._session.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._session = None
+
     async def fetch_rankings(self, uid: str) -> dict[str, Ranking]:
         """Return per-character rankings for a UID, keyed by character id. Empty if unavailable."""
         raw = await self._fetch_raw(uid)
@@ -45,13 +73,12 @@ class AkashaClient:
 
     async def _fetch_raw(self, uid: str) -> list[dict[str, Any]] | None:
         try:
-            timeout = aiohttp.ClientTimeout(total=20)
-            async with aiohttp.ClientSession(headers=_HEADERS, timeout=timeout) as session:
-                async with session.get(_API.format(uid=uid)) as resp:
-                    if resp.status != 200:
-                        logger.info("Akasha HTTP %s for uid %s", resp.status, uid)
-                        return None
-                    payload = await resp.json(content_type=None)
+            session = await self._get_session()
+            async with session.get(_API.format(uid=uid)) as resp:
+                if resp.status != 200:
+                    logger.info("Akasha HTTP %s for uid %s", resp.status, uid)
+                    return None
+                payload = await resp.json(content_type=None)
         except Exception as exc:  # noqa: BLE001 - best effort; degrade silently
             logger.info("Akasha request failed for %s: %s", uid, exc)
             return None

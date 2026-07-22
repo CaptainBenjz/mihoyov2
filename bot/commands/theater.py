@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 
 from telegram import Update
@@ -11,6 +12,7 @@ from telegram.ext import ContextTypes
 from bot.commands.common import get_app, guard, resolve_language, user_id_of
 from bot.renderer.context import TheaterCardContext
 from bot.translations.i18n import t
+from bot.utils.timing import atimed
 
 
 async def _load(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -40,5 +42,9 @@ async def theater(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @guard
 async def theater_card(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app, lang, showcase, data = await _load(update, context)
-    png = app.renderer.render_theater_card(TheaterCardContext(language=lang, theater=data, player=showcase.player))
+    async with atimed("render.theater_card"):
+        png = await asyncio.to_thread(
+            app.renderer.render_theater_card,
+            TheaterCardContext(language=lang, theater=data, player=showcase.player),
+        )
     await update.message.reply_photo(photo=io.BytesIO(png))

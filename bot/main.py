@@ -116,7 +116,13 @@ async def _post_init(application: Application) -> None:
     try:
         app_ctx = build_app_context(get_settings())
         application.bot_data[BOT_DATA_KEY] = app_ctx
-        logger.info("Startup step 2/5: dependency container built (services wired)")
+        # Warm static resources ONCE now so per-command latency excludes them:
+        # locale files (JSON) and the render template + common fonts.
+        from bot.translations.i18n import preload_locales
+
+        preload_locales()
+        app_ctx.renderer.warmup()
+        logger.info("Startup step 2/5: dependency container built + static caches warmed")
     except Exception:
         logger.critical(
             "Startup step 2/5: FAILED to build dependency container. The bot cannot "
@@ -150,14 +156,14 @@ async def _post_init(application: Application) -> None:
 
 
 async def _post_shutdown(application: Application) -> None:
-    logger.info("Shutdown: closing Redis connection pool")
+    logger.info("Shutdown: closing Redis pool and pooled HTTP sessions")
     app_ctx = application.bot_data.get(BOT_DATA_KEY)
     if app_ctx is not None:
         try:
-            await app_ctx.redis.close()
-            logger.info("Shutdown: Redis pool closed")
+            await app_ctx.aclose()
+            logger.info("Shutdown: resources released")
         except Exception:  # noqa: BLE001
-            logger.warning("Shutdown: error closing Redis pool", exc_info=True)
+            logger.warning("Shutdown: error releasing resources", exc_info=True)
 
 
 async def _set_bot_commands(application: Application) -> None:
