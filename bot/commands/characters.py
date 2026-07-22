@@ -22,7 +22,7 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from bot.app_context import AppContext
-from bot.commands.common import get_app, guard, resolve_language, user_id_of
+from bot.commands.common import get_app, guard, resolve_language, user_id_of, with_action
 from bot.models.character import Character
 from bot.models.player import PlayerInfo, Showcase
 from bot.renderer.context import CharacterCardContext
@@ -41,6 +41,7 @@ COLUMNS = 2
 
 # --------------------------------------------------------------------------- commands
 @guard
+@with_action()
 async def my_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app = get_app(context)
     lang = await resolve_language(update, context)
@@ -54,6 +55,7 @@ async def my_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 @guard
+@with_action()
 async def inspect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app = get_app(context)
     lang = await resolve_language(update, context)

@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     redis_connect_timeout: float = 4.0
     redis_socket_timeout: float = 4.0
     redis_retries: int = 1
+    # After a Redis failure, bypass it for this many seconds (circuit breaker) so commands
+    # don't repeatedly wait on a dead connection — they use the local fallback instead.
+    redis_breaker_cooldown: float = 30.0
+
+    # Local fallback store: keeps logins/settings working when Redis is unreachable.
+    # Relative paths resolve under the repo root. Point at a mounted volume for durability.
+    local_store_path: str = "data/local_store.json"
 
     # Localization
     default_language: str = "en"
@@ -61,6 +68,12 @@ class Settings(BaseSettings):
     def translations_path(self) -> Path:
         """Absolute path to the bundled locale files."""
         return ROOT_DIR / "bot" / "translations" / "locales"
+
+    @property
+    def local_store_file(self) -> Path:
+        """Absolute path to the local fallback store file."""
+        p = Path(self.local_store_path)
+        return p if p.is_absolute() else (ROOT_DIR / p)
 
 
 @lru_cache(maxsize=1)

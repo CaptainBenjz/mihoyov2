@@ -7,7 +7,7 @@ import time
 from typing import Awaitable, Callable
 
 from telegram import Update
-from telegram.constants import ParseMode
+from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
@@ -26,6 +26,30 @@ HandlerFn = Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
 def get_app(context: ContextTypes.DEFAULT_TYPE) -> AppContext:
     """Return the shared :class:`AppContext` from ``bot_data``."""
     return context.application.bot_data[BOT_DATA_KEY]
+
+
+def with_action(action: str = ChatAction.TYPING) -> Callable[[HandlerFn], HandlerFn]:
+    """Decorator: show a chat action (``typing``/``upload_photo``) while the handler runs.
+
+    Makes network/render-heavy commands *feel* instant — Telegram shows the bot "typing" (or
+    "sending photo") the moment the command arrives, so the wait for an Enka fetch or a render
+    is visible activity rather than dead air. Best-effort: a failed action never blocks.
+    """
+
+    def decorator(handler: HandlerFn) -> HandlerFn:
+        @functools.wraps(handler)
+        async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+            chat = update.effective_chat
+            if chat is not None:
+                try:
+                    await context.bot.send_chat_action(chat_id=chat.id, action=action)
+                except Exception:  # noqa: BLE001 - purely cosmetic
+                    pass
+            await handler(update, context)
+
+        return wrapper
+
+    return decorator
 
 
 def user_id_of(update: Update) -> int | None:

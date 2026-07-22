@@ -5,7 +5,7 @@ from __future__ import annotations
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.commands.common import get_app, guard, reply, resolve_language, user_id_of
+from bot.commands.common import get_app, guard, reply, resolve_language, user_id_of, with_action
 from bot.translations.i18n import t
 
 
@@ -52,6 +52,7 @@ async def my_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @guard
+@with_action()
 async def my_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app = get_app(context)
     lang = await resolve_language(update, context)

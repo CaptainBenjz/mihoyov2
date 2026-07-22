@@ -6,10 +6,10 @@ import asyncio
 import io
 
 from telegram import Update
-from telegram.constants import ParseMode
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
 
-from bot.commands.common import get_app, guard, resolve_language, user_id_of
+from bot.commands.common import get_app, guard, resolve_language, user_id_of, with_action
 from bot.renderer.context import TheaterCardContext
 from bot.translations.i18n import t
 from bot.utils.timing import atimed
@@ -26,6 +26,7 @@ async def _load(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @guard
+@with_action()
 async def theater(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _, lang, _showcase, data = await _load(update, context)
     if not data.available:
@@ -40,6 +41,7 @@ async def theater(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @guard
+@with_action(ChatAction.UPLOAD_PHOTO)
 async def theater_card(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app, lang, showcase, data = await _load(update, context)
     async with atimed("render.theater_card"):

@@ -33,12 +33,45 @@ class _BoomRedis:
     def pipeline(self, transaction: bool = True):
         return _BoomPipe()
 
+    async def hget(self, *a, **k):
+        raise RedisError("down")
+
+    async def hset(self, *a, **k):
+        raise RedisError("down")
+
+    async def hdel(self, *a, **k):
+        raise RedisError("down")
+
+    async def sadd(self, *a, **k):
+        raise RedisError("down")
+
 
 async def test_link_uid_raises_clear_error_when_redis_down():
-    """A failed write surfaces DatastoreUnavailable (clear message), not a bare RedisError."""
+    """With no fallback, a failed write surfaces DatastoreUnavailable, not a bare RedisError."""
     store = RedisStore(_BoomRedis())
     with pytest.raises(DatastoreUnavailable):
         await store.link_uid(1, "901211014")
+
+
+async def test_login_uses_local_fallback_when_redis_down(tmp_path):
+    """With a fallback, login succeeds (no error) and reads are served locally."""
+    from bot.database.local_store import LocalStore
+
+    fallback = LocalStore(tmp_path / "local.json")
+    store = RedisStore(_BoomRedis(), fallback=fallback)
+
+    await store.link_uid(5, "901211014")          # must NOT raise
+    assert await store.get_uid(5) == "901211014"  # served from the fallback
+    assert store._skip_redis() is True            # circuit opened -> later ops skip Redis
+
+
+async def test_local_fallback_persists_to_disk(tmp_path):
+    """A fresh LocalStore reads back what a previous instance wrote (survives restart)."""
+    from bot.database.local_store import LocalStore
+
+    path = tmp_path / "local.json"
+    await LocalStore(path).link_uid(9, "600000000")
+    assert await LocalStore(path).get_uid(9) == "600000000"
 
 
 async def test_get_or_create_registers_user(store):

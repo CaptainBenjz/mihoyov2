@@ -6,6 +6,10 @@ data/*.db
 data/*.db-journal
 data/*.sqlite3
 
+# Local fallback store (runtime user data; not source)
+data/local_store.json
+data/*.tmp
+
 # enka library runtime asset cache (downloaded at runtime)
 .enka_py/
 

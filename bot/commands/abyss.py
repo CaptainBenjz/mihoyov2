@@ -6,10 +6,10 @@ import asyncio
 import io
 
 from telegram import Update
-from telegram.constants import ParseMode
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
 
-from bot.commands.common import get_app, guard, resolve_language, user_id_of
+from bot.commands.common import get_app, guard, resolve_language, user_id_of, with_action
 from bot.renderer.context import AbyssCardContext
 from bot.translations.i18n import t
 from bot.utils.timing import atimed
@@ -36,18 +36,21 @@ def _text(abyss, lang: str) -> str:
 
 
 @guard
+@with_action()
 async def abyss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _, lang, _showcase, data = await _load(update, context, previous=False)
     await update.message.reply_text(_text(data, lang), parse_mode=ParseMode.HTML)
 
 
 @guard
+@with_action()
 async def pre_abyss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _, lang, _showcase, data = await _load(update, context, previous=True)
     await update.message.reply_text(_text(data, lang), parse_mode=ParseMode.HTML)
 
 
 @guard
+@with_action(ChatAction.UPLOAD_PHOTO)
 async def abyss_card(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app, lang, showcase, data = await _load(update, context, previous=False)
     async with atimed("render.abyss_card"):
@@ -59,6 +62,7 @@ async def abyss_card(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 @guard
+@with_action(ChatAction.UPLOAD_PHOTO)
 async def pre_abyss_card(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app, lang, showcase, data = await _load(update, context, previous=True)
     async with atimed("render.abyss_card"):

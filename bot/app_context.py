@@ -13,6 +13,7 @@ from bot.api.akasha_client import AkashaClient
 from bot.api.enka_client import EnkaClient
 from bot.cache.redis_cache import RedisCache
 from bot.config import Settings, get_settings
+from bot.database.local_store import LocalStore
 from bot.database.redis_client import RedisClient
 from bot.database.store import RedisStore
 from bot.renderer.base import Renderer, get_renderer
@@ -67,7 +68,9 @@ def build_app_context(settings: Settings | None = None) -> AppContext:
         socket_timeout=settings.redis_socket_timeout,
         retries=settings.redis_retries,
     )
-    store = RedisStore(redis.client)
+    # Local fallback keeps logins/settings working (and fast) when Redis is unreachable.
+    fallback = LocalStore(settings.local_store_file)
+    store = RedisStore(redis.client, fallback=fallback, breaker_cooldown=settings.redis_breaker_cooldown)
     showcase_cache = RedisCache(redis.client, ttl=settings.enka_cache_ttl, prefix="cache")
 
     enka = EnkaClient(language=settings.default_language)
