@@ -136,30 +136,41 @@ class PillowRenderer(Renderer):
         draw.text(xy, "★" * max(0, int(count or 0)), font=self._pfont(size, 500), fill=color,
                   anchor=anchor)
 
+    _PORTRAIT_FILL = 0.94  # target frame fill (spec: ~92-96%)
+
     def _fit_portrait_ellipse(self, base: Image.Image, portrait: Image.Image | None,
                               box, glow) -> None:
-        """Composite the portrait into the oval frame: element glow backdrop + cover-fit art."""
+        """Composite the portrait into the oval: element glow backdrop + proportionally-scaled,
+        alpha-cropped, centred, LANCZOS-scaled art, clipped to the frame."""
         left, top, right, bottom = box
         w, h = right - left, bottom - top
 
         # Element-coloured radial glow backdrop so the character sits on its element colour.
         backdrop = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        bd = ImageDraw.Draw(backdrop)
-        bd.ellipse([0, 0, w - 1, h - 1], fill=(*glow, 235))
-        backdrop = backdrop.filter(ImageFilter.GaussianBlur(6))
+        ImageDraw.Draw(backdrop).ellipse([0, 0, w - 1, h - 1], fill=(*glow, 235))
+        backdrop = backdrop.filter(ImageFilter.GaussianBlur(8))
 
         if portrait is not None:
-            # Cover-fit: scale keeping aspect so art covers the box, then centre-crop.
-            pw, ph = portrait.size
-            scale = max(w / pw, h / ph)
-            new = portrait.resize((max(1, int(pw * scale)), max(1, int(ph * scale))))
+            art = portrait.convert("RGBA")
+            # Tight-crop to the character's alpha bounds so transparent margins don't shrink it.
+            alpha_bbox = art.getchannel("A").getbbox()
+            if alpha_bbox:
+                art = art.crop(alpha_bbox)
+            pw, ph = art.size
+            # Cover-fit to ~94% of the frame: preserve aspect, high-quality LANCZOS, never stretch.
+            scale = max(w / pw, h / ph) * self._PORTRAIT_FILL
+            new = art.resize((max(1, round(pw * scale)), max(1, round(ph * scale))), Image.LANCZOS)
+            # Centre horizontally; bias vertically toward the top (faces/upper body).
             nx = (new.width - w) // 2
-            ny = int((new.height - h) * 0.08)  # bias toward the top (faces/upper body)
-            ny = max(0, min(ny, new.height - h))
-            cropped = new.crop((nx, ny, nx + w, ny + h))
-            backdrop.alpha_composite(cropped.convert("RGBA"))
+            ny = int((new.height - h) * 0.10)
+            nx = max(0, min(nx, max(0, new.width - w)))
+            ny = max(0, min(ny, max(0, new.height - h)))
+            paste_x = (w - new.width) // 2 if new.width < w else 0
+            paste_y = 0
+            cropped = new.crop((nx, ny, nx + min(w, new.width), ny + min(h, new.height)))
+            backdrop.alpha_composite(cropped, (max(0, paste_x), max(0, paste_y)))
 
-        # Elliptical mask so nothing overflows the frame.
+        # Elliptical mask so nothing overflows the frame; alpha composite for clean edges.
         mask = Image.new("L", (w, h), 0)
         ImageDraw.Draw(mask).ellipse([0, 0, w - 1, h - 1], fill=255)
         base.paste(backdrop, (left, top), mask)

@@ -1,120 +1,151 @@
-"""Async wrapper over the Akasha System API (``akasha-py`` package).
+"""Async client for the Akasha System API (akasha.cv).
 
-Akasha provides leaderboard/ranking data. Its upstream API is unofficial and changes
-without notice, so this client is **best-effort**: every failure is swallowed into an
-empty result (or a domain error the caller treats as "no ranking"), and it never blocks
-the core character flow. Rankings simply don't appear when Akasha is unavailable.
+Akasha provides per-character damage leaderboard rankings. We call the public endpoint
+directly with a browser User-Agent — akasha.cv returns **403** to the default
+``akasha-py`` UA, which is why rankings previously never resolved. Parsing is **label-based**
+(fields are selected by key name, not positional index) so it tolerates layout changes, and
+parse failures are logged (raw payload + field + error) instead of being silently swallowed.
 
-Returns a mapping of character id -> :class:`bot.models.ranking.Ranking`.
+Returns a mapping of character id (str) -> :class:`bot.models.ranking.Ranking`.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import aiohttp
+
 from bot.models.ranking import Ranking
 from bot.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+_API = "https://akasha.cv/api/getCalculationsForUser/{uid}"
 _LEADERBOARD_URL = "https://akasha.cv/leaderboards/{calc_id}"
+# akasha.cv rejects the default akasha-py UA (403); a browser UA is required.
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+    "Referer": "https://akasha.cv/",
+}
 
 
 class AkashaClient:
-    """Thin async client around ``akasha.AkashaAPI``. Best-effort; never raises to callers."""
+    """Best-effort Akasha ranking client. Never raises to callers."""
 
     async def fetch_rankings(self, uid: str) -> dict[str, Ranking]:
-        """Return per-character rankings for a UID. Empty dict if unavailable."""
-        try:
-            raw = await self._fetch_raw(uid)
-        except Exception as exc:  # noqa: BLE001 - best effort; degrade silently
-            logger.info("Akasha rankings unavailable for %s: %s", uid, exc)
+        """Return per-character rankings for a UID, keyed by character id. Empty if unavailable."""
+        raw = await self._fetch_raw(uid)
+        if raw is None:
             return {}
-        return self._map(raw)
+        return self._parse(raw, uid)
 
-    async def _fetch_raw(self, uid: str) -> list[Any]:
+    async def _fetch_raw(self, uid: str) -> list[dict[str, Any]] | None:
         try:
-            import akasha  # type: ignore
-        except ImportError:  # pragma: no cover - depends on environment
-            logger.info("akasha-py not installed; skipping rankings")
-            return []
+            timeout = aiohttp.ClientTimeout(total=20)
+            async with aiohttp.ClientSession(headers=_HEADERS, timeout=timeout) as session:
+                async with session.get(_API.format(uid=uid)) as resp:
+                    if resp.status != 200:
+                        logger.info("Akasha HTTP %s for uid %s", resp.status, uid)
+                        return None
+                    payload = await resp.json(content_type=None)
+        except Exception as exc:  # noqa: BLE001 - best effort; degrade silently
+            logger.info("Akasha request failed for %s: %s", uid, exc)
+            return None
 
-        api = akasha.AkashaAPI()
-        try:
-            # The wrapper exposes calculations per user; each entry ~ one character build.
-            calcs = await api.get_calculations_for_user(int(uid))
-            return list(calcs) if calcs is not None else []
-        finally:
-            close = getattr(api, "close", None)
-            if close is not None:
-                try:
-                    await close()
-                except Exception:  # noqa: BLE001
-                    pass
+        data = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(data, list):
+            logger.warning("Akasha payload not a list for %s: %r", uid, str(payload)[:300])
+            return None
+        return data
 
-    def _map(self, calcs: list[Any]) -> dict[str, Ranking]:
+    def _parse(self, entries: list[dict[str, Any]], uid: str) -> dict[str, Ranking]:
+        """Extract rankings by field label. Logs (raw + field + error) on any failure."""
         out: dict[str, Ranking] = {}
-        for calc in calcs:
-            char_id = _first_str(calc, "character_id", "avatar_id", "characterId")
+        for entry in entries:
+            char_id = _first(entry, "characterId", "character_id")
             if char_id is None:
+                logger.debug("Akasha entry missing characterId for %s: %r", uid, str(entry)[:200])
                 continue
-            calc_id = _first_str(calc, "calculation_id", "id", "calculationId")
-            ranking = Ranking(
-                calculation_id=calc_id,
-                calculation_name=_first_str(calc, "name", "calculation_name"),
-                rank=_first_int(calc, "ranking", "rank"),
-                total_players=_first_int(calc, "out_of", "total", "outOf"),
-                top_percent=_first_float(calc, "top_percent", "priority", "topPercent"),
-                leaderboard_url=_LEADERBOARD_URL.format(calc_id=calc_id) if calc_id else None,
-                damage=_first_float(calc, "result", "damage"),
-            )
-            # Keep the strongest (best-ranked) calc per character.
-            existing = out.get(char_id)
-            if existing is None or _better(ranking, existing):
-                out[char_id] = ranking
+            char_id = str(char_id)
+
+            best = self._best_calculation(entry, uid)
+            if best is None:
+                continue
+
+            try:
+                rank = _first_int(best, "ranking", "rank")
+                total = _first_int(best, "outOf", "out_of", "total")
+                category = _first_str(best, "name", "short")
+                calc_id = _first_str(best, "calculationId", "calculation_id", "id")
+                top_percent = (rank / total * 100.0) if (rank and total) else None
+                # Debug aid: if the calc exists but core fields didn't parse, say which.
+                for label, value in (("ranking", rank), ("outOf", total), ("name", category)):
+                    if value is None:
+                        logger.warning(
+                            "Akasha parse: '%s' missing for char %s uid %s; calc keys=%s",
+                            label, char_id, uid, list(best.keys()),
+                        )
+                out[char_id] = Ranking(
+                    calculation_id=calc_id,
+                    calculation_name=category,
+                    rank=rank,
+                    total_players=total,
+                    top_percent=top_percent,
+                    leaderboard_url=_LEADERBOARD_URL.format(calc_id=calc_id) if calc_id else None,
+                    damage=_first_float(best, "result", "damage"),
+                )
+            except Exception as exc:  # noqa: BLE001 - never break the flow; log for debugging
+                logger.warning(
+                    "Akasha parse error for char %s uid %s: %s; raw=%r",
+                    char_id, uid, exc, str(best)[:300],
+                )
         return out
 
+    @staticmethod
+    def _best_calculation(entry: dict[str, Any], uid: str) -> dict[str, Any] | None:
+        """Pick the character's best-ranked calculation from the ``calculations`` map/list."""
+        calcs = entry.get("calculations")
+        items: list[dict[str, Any]] = []
+        if isinstance(calcs, dict):
+            items = [c for c in calcs.values() if isinstance(c, dict)]
+        elif isinstance(calcs, list):
+            items = [c for c in calcs if isinstance(c, dict)]
+        if not items:
+            logger.debug("Akasha: no calculations for entry uid %s: %r", uid, str(entry)[:200])
+            return None
+        ranked = [c for c in items if _first_int(c, "ranking", "rank") is not None]
+        if not ranked:
+            return items[0]
+        return min(ranked, key=lambda c: _first_int(c, "ranking", "rank"))
 
-def _better(a: Ranking, b: Ranking) -> bool:
-    """Whether ranking ``a`` is better (lower rank number) than ``b``."""
-    if a.rank is None:
-        return False
-    if b.rank is None:
-        return True
-    return a.rank < b.rank
 
-
-def _attr(obj: Any, name: str) -> Any:
-    if isinstance(obj, dict):
-        return obj.get(name)
-    return getattr(obj, name, None)
-
-
-def _first_str(obj: Any, *names: str) -> str | None:
+def _first(obj: dict[str, Any], *names: str) -> Any:
     for n in names:
-        v = _attr(obj, n)
-        if v is not None:
-            return str(v)
+        if n in obj and obj[n] is not None:
+            return obj[n]
     return None
 
 
-def _first_int(obj: Any, *names: str) -> int | None:
-    for n in names:
-        v = _attr(obj, n)
-        if v is not None:
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                continue
-    return None
+def _first_str(obj: dict[str, Any], *names: str) -> str | None:
+    v = _first(obj, *names)
+    return str(v) if v is not None else None
 
 
-def _first_float(obj: Any, *names: str) -> float | None:
-    for n in names:
-        v = _attr(obj, n)
-        if v is not None:
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                continue
-    return None
+def _first_int(obj: dict[str, Any], *names: str) -> int | None:
+    v = _first(obj, *names)
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_float(obj: dict[str, Any], *names: str) -> float | None:
+    v = _first(obj, *names)
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
