@@ -8,6 +8,7 @@ exposes helpers the command layer uses for the browsing flow. No Telegram or ren
 from __future__ import annotations
 
 import asyncio
+import time
 
 from bot.api.akasha_client import AkashaClient
 from bot.api.enka_client import EnkaClient
@@ -21,12 +22,20 @@ from bot.utils.logging import get_logger
 from bot.utils.timing import atimed
 
 logger = get_logger(__name__)
+perf_logger = get_logger("bot.perf")
 
 _CACHE_NS = "showcase"
+_MEM_MAX = 64  # showcases kept in the in-process cache
 
 
 class CharacterService:
-    """Fetches, enriches, and caches player showcases."""
+    """Fetches, enriches, and caches player showcases.
+
+    Two cache tiers sit in front of the (Enka + Akasha) fetch:
+      1. a tiny in-process memory cache — instant, and keeps rapid inline navigation fast
+         even when Redis is unavailable (no per-click network round-trip);
+      2. the shared Redis cache — survives restarts and is shared across workers.
+    """
 
     def __init__(
         self,
@@ -39,26 +48,56 @@ class CharacterService:
         self._akasha = akasha
         self._cache = cache
         self._ttl = ttl
+        self._mem: dict[str, tuple[float, Showcase]] = {}
+
+    def _mem_get(self, key: str) -> Showcase | None:
+        entry = self._mem.get(key)
+        if entry is None:
+            return None
+        ts, showcase = entry
+        if (time.monotonic() - ts) > self._ttl:
+            self._mem.pop(key, None)
+            return None
+        return showcase
+
+    def _mem_put(self, key: str, showcase: Showcase) -> None:
+        self._mem[key] = (time.monotonic(), showcase)
+        if len(self._mem) > _MEM_MAX:
+            for old, _ in sorted(self._mem.items(), key=lambda kv: kv[1][0])[
+                : len(self._mem) - _MEM_MAX
+            ]:
+                self._mem.pop(old, None)
 
     async def get_showcase(self, uid: str, language: str = "en") -> Showcase:
         """Return a cached (or freshly fetched + enriched) showcase for a UID.
 
-        On a cache miss the Enka showcase fetch and the (independent) Akasha ranking fetch
-        are issued **concurrently** — neither depends on the other's result — so a fresh
-        lookup costs roughly ``max(enka, akasha)`` instead of ``enka + akasha``.
+        Checks the in-memory cache first (instant), then Redis, then fetches. On a cache miss
+        the Enka showcase fetch and the (independent) Akasha ranking fetch are issued
+        **concurrently**, so a fresh lookup costs roughly ``max(enka, akasha)`` not the sum.
         """
         cache_key = f"{language}:{uid}"
 
+        # Tier 1: in-process memory (instant; works even when Redis is down).
+        cached_mem = self._mem_get(cache_key)
+        if cached_mem is not None:
+            perf_logger.info("showcase memory cache HIT %s", cache_key)
+            return cached_mem
+        perf_logger.info("showcase memory cache MISS %s", cache_key)
+
+        # Tier 2: shared Redis cache.
         async with atimed("showcase.cache_read"):
             cached = await self._cache.get_json(_CACHE_NS, cache_key)
         if cached is not None:
             try:
-                return showcase_from_dict(cached)
+                showcase = showcase_from_dict(cached)
+                self._mem_put(cache_key, showcase)
+                return showcase
             except Exception as exc:  # noqa: BLE001 - corrupt cache -> refetch
                 logger.debug("Discarding unreadable cached showcase for %s: %s", uid, exc)
 
         showcase, rankings = await self._fetch_concurrently(uid, language)
         self._attach_rankings(showcase, rankings)
+        self._mem_put(cache_key, showcase)
 
         async with atimed("showcase.cache_write"):
             await self._cache.set_json(_CACHE_NS, cache_key, showcase_to_dict(showcase), ttl=self._ttl)

@@ -74,6 +74,22 @@ async def test_get_character_missing_raises(cache):
         await service.get_character("901211014", "99999999")
 
 
+async def test_memory_cache_serves_when_redis_unavailable():
+    """With Redis missing, the in-process cache still serves repeat calls (fast navigation)."""
+    class MissCache:
+        async def get_json(self, *a, **k):
+            return None
+
+        async def set_json(self, *a, **k):
+            return None
+
+    enka = FakeEnka(_showcase())
+    service = CharacterService(enka, FakeAkasha(), MissCache(), ttl=60)
+    await service.get_showcase("901211014")
+    await service.get_showcase("901211014")
+    assert enka.calls == 1  # second call served from the in-memory cache, no refetch
+
+
 async def test_ranking_failure_does_not_break_showcase(cache):
     class BrokenAkasha:
         async def fetch_rankings(self, uid):

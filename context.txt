@@ -72,6 +72,30 @@ KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
 -------------------------------------------------------------------------------
 FIX HISTORY
 -------------------------------------------------------------------------------
+2026-07-22  Session 8 (/mycharacters single-message nav + reliability + perf):
+  Was: list = TEXT message; clicking a char sent a NEW photo message; back deleted it.
+  Reliability bug: on_callback called query.answer() AFTER get_showcase, so on a cache miss
+  (enka+akasha fetch) Telegram rejected the late answer as "query too old" -> error.generic
+  ("Oh no..."). Telegram can't edit text<->photo, so single-message requires a media list.
+  Changes (bot/commands/characters.py rewrite of cmd+callback layer; UI/captions unchanged):
+   - /mycharacters + /inspect now send ONE photo message: banner (existing assets/ui/
+     welcome.jpg, cached by file_id) + list text as caption + same buttons.
+   - Clicking a char EDITS that message via editMessageMedia (card + caption + Back) — no new
+     message. Back edits media back to the banner. Paging uses editMessageCaption only.
+     Legacy text messages fall back gracefully.
+   - Answer callback query IMMEDIATELY (first line of on_callback) -> fixes the intermittent
+     "query too old" error + stops the button spinner instantly.
+   - Rendered cards cached by Telegram file_id ((uid,char,lang) TTL+LRU _TTLFileCache) ->
+     re-opening reuses the uploaded image, no re-render/re-upload. Banner file_id cached too.
+   - character_service: added tier-1 in-process showcase memory cache (TTL+LRU) in front of
+     Redis -> navigation instant even when Redis is DOWN (no per-click round-trip/refetch).
+   - Per-user nav state in context.user_data["myc"] (uid/page/char). Memory bounded (TTL+LRU).
+   - Timing logs (bot.perf): callback received/processed, redis_read, showcase_get, cache
+     HIT/MISS (image + showcase memory), render, total.
+  NOTE (honest): rankings still fetched with the showcase (parallel + cached), not split out.
+  Only visual change: a banner image now sits above the list text (required for one-message).
+  Tests: +tests/test_characters_nav.py (4) + memory-cache test. Full suite 126 passed.
+
 2026-07-22  Session 7 (make bot work + smooth despite dead Redis):
   User's Upstash Redis still unreachable; asked to fix regardless + make responses smooth.
   Can't reach their DB, so made the bot NOT depend on Redis being up:

@@ -1,13 +1,18 @@
-"""Character showcase commands and callback navigation.
+"""Character showcase commands and single-message callback navigation.
 
 Commands:
     /mycharacters (/myc) — browse your own showcase.
     /inspect <UID>       — browse another player's showcase.
 
-Navigation is driven entirely by inline-button ``callback_data`` (see
-:mod:`bot.utils.callbacks`), so switching pages or opening/closing a character edits the
-same message and never requires rerunning the command. State is reconstructed from the
-pressed button plus the cached showcase.
+The whole interaction lives in **one** Telegram message. ``/mycharacters`` sends a single
+photo message (a banner with the character list as its caption and inline buttons). Pressing
+a character edits that same message into the character card (``editMessageMedia``); pressing
+Back edits it straight back to the list. No new message is ever created for navigation.
+
+State is reconstructed from the pressed button's ``callback_data`` (see
+:mod:`bot.utils.callbacks`) plus the cached showcase, so navigation survives restarts. Rendered
+card images are cached by Telegram ``file_id`` (per uid/character/language) so re-opening a
+character re-uses the already-uploaded image instead of re-rendering + re-uploading.
 """
 
 from __future__ import annotations
@@ -15,9 +20,15 @@ from __future__ import annotations
 import asyncio
 import html
 import io
+import time
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import ParseMode
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    Update,
+)
+from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
@@ -29,19 +40,92 @@ from bot.renderer.context import CharacterCardContext
 from bot.translations.i18n import t
 from bot.utils import callbacks
 from bot.utils.errors import BotError
-from bot.utils.timing import atimed
 from bot.utils.logging import get_logger
 from bot.utils.text import strip_custom_emoji
+from bot.utils.timing import atimed, perf_logger
 
 logger = get_logger(__name__)
 
 PAGE_SIZE = 8       # character buttons per page
 COLUMNS = 2
 
+_BANNER_KEY = "__banner__"
+
+
+class _TTLFileCache:
+    """Tiny TTL + size-bounded cache of Telegram ``file_id`` strings.
+
+    Lets navigation re-use already-uploaded images (banner + character cards) instead of
+    re-rendering/re-uploading. Entries expire after ``ttl`` seconds and the oldest are
+    evicted past ``maxsize`` — so it never grows without bound (file_ids are tiny strings).
+    """
+
+    def __init__(self, ttl: float = 900.0, maxsize: int = 256) -> None:
+        self._ttl = ttl
+        self._max = maxsize
+        self._data: dict[object, tuple[float, str]] = {}
+
+    def get(self, key: object) -> str | None:
+        entry = self._data.get(key)
+        if entry is None:
+            return None
+        ts, file_id = entry
+        if (time.monotonic() - ts) > self._ttl:
+            self._data.pop(key, None)
+            return None
+        return file_id
+
+    def put(self, key: object, file_id: str) -> None:
+        self._data[key] = (time.monotonic(), file_id)
+        if len(self._data) > self._max:
+            # Drop the oldest entries (simple age-based eviction).
+            for old_key, _ in sorted(self._data.items(), key=lambda kv: kv[1][0])[
+                : len(self._data) - self._max
+            ]:
+                self._data.pop(old_key, None)
+
+
+# Process-wide image cache. file_ids are bot-global and reusable across chats/messages.
+_FILE_IDS = _TTLFileCache()
+
+
+def _photo_arg(photo: str | bytes):
+    """Return a value usable as a Telegram photo: a file_id string or a fresh BytesIO."""
+    return photo if isinstance(photo, str) else io.BytesIO(photo)
+
+
+def _banner_photo(app: AppContext) -> str | bytes:
+    """Return the list banner as a cached file_id, else the raw image bytes to upload once."""
+    fid = _FILE_IDS.get(_BANNER_KEY)
+    if fid:
+        return fid
+    try:
+        return (app.settings.assets_path / "ui" / "welcome.jpg").read_bytes()
+    except OSError:
+        # No banner asset present — generate a plain one so the photo message can still send.
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (1280, 720), (30, 31, 41)).save(buf, format="JPEG")
+        return buf.getvalue()
+
+
+def _remember_banner(msg) -> None:
+    try:
+        if msg is not None and getattr(msg, "photo", None):
+            _FILE_IDS.put(_BANNER_KEY, msg.photo[-1].file_id)
+    except Exception:  # noqa: BLE001 - caching is best-effort
+        pass
+
+
+def _remember_state(context: ContextTypes.DEFAULT_TYPE, uid: str, page: int, char_id: str | None) -> None:
+    """Persist lightweight per-user navigation state (current uid/page/selected character)."""
+    context.user_data["myc"] = {"uid": uid, "page": page, "char": char_id, "ts": time.time()}
+
 
 # --------------------------------------------------------------------------- commands
 @guard
-@with_action()
+@with_action(ChatAction.UPLOAD_PHOTO)
 async def my_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app = get_app(context)
     lang = await resolve_language(update, context)
@@ -49,13 +133,11 @@ async def my_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if tg_id is None:
         return
     uid = await app.account_service.require_uid(tg_id)
-    showcase = await app.character_service.get_showcase(uid, lang)
-    text, markup = _render_list(showcase, uid, page=0, lang=lang, viewer_uid=uid, owner=tg_id)
-    await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    await _open_showcase(update, app, uid, viewer_uid=uid, owner=tg_id, lang=lang)
 
 
 @guard
-@with_action()
+@with_action(ChatAction.UPLOAD_PHOTO)
 async def inspect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     app = get_app(context)
     lang = await resolve_language(update, context)
@@ -67,100 +149,83 @@ async def inspect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     uid = validate_uid(context.args[0])  # raises InvalidUID -> handled by @guard
     tg_id = user_id_of(update)
     viewer_uid = await app.account_service.get_uid(tg_id) if tg_id else None
+    await _open_showcase(update, app, uid, viewer_uid=viewer_uid, owner=tg_id or 0, lang=lang)
+
+
+async def _open_showcase(
+    update: Update, app: AppContext, uid: str, *, viewer_uid: str | None, owner: int, lang: str
+) -> None:
+    """Send the initial one-message showcase: a banner photo whose caption is the list."""
     showcase = await app.character_service.get_showcase(uid, lang)
-    text, markup = _render_list(showcase, uid, page=0, lang=lang, viewer_uid=viewer_uid, owner=tg_id or 0)
-    await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    text, markup = _render_list(showcase, uid, page=0, lang=lang, viewer_uid=viewer_uid, owner=owner)
+    photo = _banner_photo(app)
+    sent = await update.message.reply_photo(
+        photo=_photo_arg(photo), caption=text, parse_mode=ParseMode.HTML, reply_markup=markup
+    )
+    _remember_banner(sent)
 
 
 # --------------------------------------------------------------------------- callback router
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle inline-button presses for the character-browsing flow."""
+    """Handle inline-button presses for the character-browsing flow (edits one message)."""
     query = update.callback_query
     if query is None:
         return
+
+    started = time.perf_counter()
+    # Answer FIRST — before any Redis/API work — so the button never spins and Telegram can
+    # never reject a late answer as "query too old" (the cause of the intermittent error).
+    try:
+        await query.answer()
+    except Exception:  # noqa: BLE001
+        pass
+
+    perf_logger.info("callback received: %s", query.data)
     app = get_app(context)
-    lang = await resolve_language(update, context)
-    tg_id = user_id_of(update)
-    viewer_uid = await app.account_service.get_uid(tg_id) if tg_id else None
-
     cb = callbacks.decode(query.data or "")
-
-    # Ownership is enforced centrally by the universal gate (bot.commands.ownership),
-    # which runs before this handler; menus still embed the owner in their callback_data.
+    lang = "en"
     try:
         if cb.action == callbacks.ACTION_NOOP:
-            await query.answer()
             return
+
+        async with atimed("callback.redis_read"):
+            lang = await resolve_language(update, context)
 
         if cb.action == callbacks.ACTION_CHAR:
-            showcase = await app.character_service.get_showcase(cb.uid, lang)
-            character = showcase.get_character(cb.char_id)
-            if character is None:
-                await query.answer(t("error.character_not_found", lang), show_alert=True)
-                return
-            await query.answer()
-            await _send_profile_card(app, query, character, showcase.player, cb, lang)
-            return
-
-        if cb.action == callbacks.ACTION_BACK:
-            # The profile card is a photo message; Telegram can't edit it back into the text
-            # list, so we delete the card — the original list message is untouched behind it.
-            msg = query.message
-            if msg is not None and getattr(msg, "photo", None):
-                try:
-                    await msg.delete()
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("card delete ignored: %s", exc)
-                await query.answer()
-                return
-            # Fallback (legacy text view): re-render the list in place.
-
-        # LIST / PAGE (and legacy BACK) resolve to showing the list at a page.
-        showcase = await app.character_service.get_showcase(cb.uid, lang)
-        text, markup = _render_list(
-            showcase, cb.uid, page=cb.page, lang=lang, viewer_uid=viewer_uid, owner=cb.owner
-        )
-        await _safe_edit(query, text, markup)
-        await query.answer()
+            await _show_character(app, context, query, cb, lang)
+        else:  # BACK / LIST / PAGE all resolve to showing the list
+            await _show_list(app, context, query, cb, lang)
+        perf_logger.info("callback processed: %s", cb.action)
     except BotError as exc:
-        await query.answer(t(exc.i18n_key, lang), show_alert=True)
+        await _try_alert(query, t(exc.i18n_key, lang))
     except Exception:  # noqa: BLE001 - never crash on a button press
         logger.exception("Callback failed")
-        await query.answer(t("error.generic", lang), show_alert=True)
+        await _try_alert(query, t("error.generic", lang))
+    finally:
+        perf_logger.info(
+            "my_characters callback total: %.0f ms", (time.perf_counter() - started) * 1000
+        )
 
 
-# --------------------------------------------------------------------------- profile card
-async def _send_profile_card(
-    app: AppContext, query, character: Character, player: PlayerInfo | None, cb, lang: str
-) -> None:
-    """Render the character profile card and send it as a new photo with caption + Back."""
-    target = query.message
-    if target is None:
+async def _try_alert(query, text: str) -> None:
+    """Best-effort error popup. The query is already answered, so this may be a no-op."""
+    try:
+        await query.answer(text, show_alert=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# --------------------------------------------------------------------------- views (edit in place)
+async def _show_character(app: AppContext, context, query, cb, lang: str) -> None:
+    """Edit the current message into the character card (media + caption + Back)."""
+    async with atimed("callback.showcase_get"):
+        showcase = await app.character_service.get_showcase(cb.uid, lang)
+    character = showcase.get_character(cb.char_id)
+    if character is None:
+        await _try_alert(query, t("error.character_not_found", lang))
         return
-    # Prefetch the portrait and every icon the card needs (weapon, talents, constellations,
-    # artifacts/set) so the synchronous renderer can composite them without doing I/O. The
-    # portrait and the icon batch are independent, so fetch them concurrently.
-    icon_urls: list[str] = []
-    if character.weapon and character.weapon.icon:
-        icon_urls.append(character.weapon.icon)
-    icon_urls += [t.icon for t in character.talents if t.icon]
-    icon_urls += [n.icon for n in character.constellations if n.icon]
-    icon_urls += [a.icon for a in character.artifacts if a.icon]
-    async with atimed("artwork.prefetch"):
-        portrait, icons = await asyncio.gather(
-            app.artwork_service.get_portrait(character),
-            app.artwork_service.get_images(icon_urls),
-        )
-    # Rendering is CPU-bound Pillow work — run it in a worker thread so it never blocks the
-    # event loop (other users' commands stay responsive during a render).
-    async with atimed("render.profile_card"):
-        png = await asyncio.to_thread(
-            app.renderer.render_profile_card,
-            CharacterCardContext(
-                language=lang, character=character, player=player, portrait=portrait, icons=icons
-            ),
-        )
-    caption = _build_caption(character, player)
+
+    caption = _build_caption(character, showcase.player)
     back_kb = InlineKeyboardMarkup(
         [[InlineKeyboardButton(
             t("common.back", lang),
@@ -168,20 +233,116 @@ async def _send_profile_card(
         )]]
     )
 
-    async def _send(cap: str):
-        return await target.reply_photo(
-            photo=io.BytesIO(png), caption=cap, parse_mode=ParseMode.HTML, reply_markup=back_kb
+    key = (cb.uid, cb.char_id, lang)
+    file_id = _FILE_IDS.get(key)
+    if file_id is not None:
+        perf_logger.info("card image cache HIT %s", key)
+        photo: str | bytes = file_id
+    else:
+        perf_logger.info("card image cache MISS %s", key)
+        photo = await _render_card_png(app, character, showcase.player, lang)
+
+    result = await _edit_media(query, photo, caption, back_kb)
+    _cache_result_file_id(key, result)
+    _remember_state(context, cb.uid, cb.page, cb.char_id)
+
+
+async def _show_list(app: AppContext, context, query, cb, lang: str) -> None:
+    """Edit the current message back into the character list at ``cb.page``."""
+    tg_id = query.from_user.id if query.from_user else None
+    viewer_uid = await app.account_service.get_uid(tg_id) if tg_id else None
+
+    async with atimed("callback.showcase_get"):
+        showcase = await app.character_service.get_showcase(cb.uid, lang)
+    text, markup = _render_list(
+        showcase, cb.uid, page=cb.page, lang=lang, viewer_uid=viewer_uid, owner=cb.owner
+    )
+
+    msg = query.message
+    is_photo = bool(msg is not None and getattr(msg, "photo", None))
+
+    if is_photo and cb.action == callbacks.ACTION_PAGE:
+        # The banner is already shown; only the caption + buttons change (cheapest edit).
+        await _safe_edit(query.edit_message_caption(
+            caption=text, parse_mode=ParseMode.HTML, reply_markup=markup
+        ))
+    elif is_photo:
+        # Coming back from a character card: swap the media back to the banner.
+        result = await _edit_media(query, _banner_photo(app), text, markup)
+        _remember_banner(result)
+    else:
+        # Legacy text message (created before this version): edit text in place.
+        await _safe_edit(query.edit_message_text(
+            text, reply_markup=markup, parse_mode=ParseMode.HTML
+        ))
+    _remember_state(context, cb.uid, cb.page, None)
+
+
+async def _render_card_png(app: AppContext, character: Character, player: PlayerInfo | None, lang: str) -> bytes:
+    """Render a character card to PNG bytes (assets prefetched concurrently; render off-loop)."""
+    icon_urls: list[str] = []
+    if character.weapon and character.weapon.icon:
+        icon_urls.append(character.weapon.icon)
+    icon_urls += [tal.icon for tal in character.talents if tal.icon]
+    icon_urls += [n.icon for n in character.constellations if n.icon]
+    icon_urls += [a.icon for a in character.artifacts if a.icon]
+    async with atimed("artwork.prefetch"):
+        portrait, icons = await asyncio.gather(
+            app.artwork_service.get_portrait(character),
+            app.artwork_service.get_images(icon_urls),
+        )
+    async with atimed("render.profile_card"):
+        return await asyncio.to_thread(
+            app.renderer.render_profile_card,
+            CharacterCardContext(
+                language=lang, character=character, player=player, portrait=portrait, icons=icons
+            ),
         )
 
+
+async def _edit_media(query, photo: str | bytes, caption: str, markup: InlineKeyboardMarkup):
+    """editMessageMedia with the given photo/caption/markup, with graceful fallbacks.
+
+    Falls back to a stripped (standard-emoji) caption if custom emoji are rejected, and — only
+    if the message genuinely can't be edited into media (e.g. a legacy text message) — to
+    sending a photo so the user still gets a result.
+    """
+    def media(cap: str) -> InputMediaPhoto:
+        return InputMediaPhoto(media=_photo_arg(photo), caption=cap, parse_mode=ParseMode.HTML)
+
     try:
-        await _send(caption)
+        return await query.edit_message_media(media=media(caption), reply_markup=markup)
     except BadRequest as exc:
         fallback = strip_custom_emoji(caption)
         if fallback != caption:
-            logger.info("Custom emoji not sent in card caption (%s); using fallback", exc)
-            await _send(fallback)
-        else:
-            raise
+            try:
+                return await query.edit_message_media(media=media(fallback), reply_markup=markup)
+            except BadRequest as exc2:
+                exc = exc2
+        logger.info("edit_message_media failed (%s); sending photo fallback", exc)
+        return await query.message.reply_photo(
+            photo=_photo_arg(photo), caption=strip_custom_emoji(caption),
+            parse_mode=ParseMode.HTML, reply_markup=markup,
+        )
+
+
+def _cache_result_file_id(key, result) -> None:
+    """Remember the Telegram file_id of an edited/sent photo so we can reuse it later."""
+    try:
+        if result is not None and getattr(result, "photo", None):
+            _FILE_IDS.put(key, result.photo[-1].file_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def _safe_edit(coro) -> None:
+    """Await an edit coroutine, swallowing 'message is not modified'-style errors."""
+    try:
+        await coro
+    except BadRequest as exc:
+        logger.debug("edit ignored: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("edit failed: %s", exc)
 
 
 def _build_caption(character: Character, player: PlayerInfo | None) -> str:
@@ -203,7 +364,7 @@ def _build_caption(character: Character, player: PlayerInfo | None) -> str:
     )
 
 
-# --------------------------------------------------------------------------- rendering (text)
+# --------------------------------------------------------------------------- list rendering
 def _render_list(
     showcase: Showcase, uid: str, *, page: int, lang: str, viewer_uid: str | None, owner: int = 0
 ) -> tuple[str, InlineKeyboardMarkup]:
@@ -260,77 +421,6 @@ def _render_list(
             rows.append(nav)
 
     return text, InlineKeyboardMarkup(rows)
-
-
-def _character_keyboard(uid: str, page: int, lang: str, owner: int = 0) -> InlineKeyboardMarkup:
-    """A single 'Back' button that returns to the list at the page we came from."""
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton(
-            t("common.back", lang),
-            callback_data=callbacks.encode(callbacks.ACTION_BACK, uid=uid, page=page, owner=owner),
-        )]]
-    )
-
-
-def _render_character(c: Character, lang: str) -> str:
-    """Full text build of a character (placeholder for the future image card)."""
-    lines = [t("character.details_title", lang, name=c.name)]
-    lines.append(t("character.level", lang, level=c.level))
-    lines.append(t("character.constellation", lang, constellation=c.constellation))
-
-    if c.weapon:
-        lines.append(
-            t("character.weapon", lang, name=c.weapon.name, refinement=c.weapon.refinement, level=c.weapon.level)
-        )
-    else:
-        lines.append(t("character.no_weapon", lang))
-
-    if c.talents:
-        talents = ", ".join(f"{tal.name} {tal.level}" for tal in c.talents)
-        lines.append(t("character.talents", lang, talents=talents))
-
-    # Stats block.
-    s = c.stats
-    lines.append("")
-    lines.append(t("character.stats_title", lang))
-    lines.append(f"{t('stats.hp', lang)}: {s.hp:,.0f}")
-    lines.append(f"{t('stats.atk', lang)}: {s.atk:,.0f}")
-    lines.append(f"{t('stats.def', lang)}: {s.defense:,.0f}")
-    lines.append(f"{t('stats.crit_rate', lang)}: {s.crit_rate:.1f}%")
-    lines.append(f"{t('stats.crit_dmg', lang)}: {s.crit_dmg:.1f}%")
-    lines.append(f"{t('stats.energy_recharge', lang)}: {s.energy_recharge:.1f}%")
-    lines.append(f"{t('stats.elemental_mastery', lang)}: {s.elemental_mastery:,.0f}")
-
-    # Artifacts.
-    lines.append("")
-    lines.append(t("character.artifacts_title", lang))
-    if c.artifacts:
-        for a in c.artifacts:
-            main = f"{a.main_stat.name} {a.main_stat.value:g}" if a.main_stat else "-"
-            lines.append(t("character.artifact_line", lang, slot=a.slot, set_name=a.set_name or "-", level=a.level, main_stat=main))
-    else:
-        lines.append(t("character.no_artifacts", lang))
-
-    # Ranking (only if present).
-    if c.ranking and c.ranking.available:
-        lines.append("")
-        lines.append(t("ranking.title", lang))
-        if c.ranking.rank is not None:
-            lines.append(t("ranking.rank", lang, rank=c.ranking.rank))
-        if c.ranking.total_players is not None:
-            lines.append(t("ranking.total_players", lang, total=c.ranking.total_players))
-        if c.ranking.top_percent is not None:
-            lines.append(t("ranking.top_percent", lang, percent=f"{c.ranking.top_percent:.1f}"))
-
-    return "\n".join(lines)
-
-
-async def _safe_edit(query, text: str, markup: InlineKeyboardMarkup) -> None:
-    """Edit the message text; ignore 'message not modified' style errors."""
-    try:
-        await query.edit_message_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-    except Exception as exc:  # noqa: BLE001 - editing to identical content raises BadRequest
-        logger.debug("edit_message_text ignored: %s", exc)
 
 
 def _empty_showcase_error() -> BotError:
