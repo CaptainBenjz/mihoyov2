@@ -72,6 +72,21 @@ KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
 -------------------------------------------------------------------------------
 FIX HISTORY
 -------------------------------------------------------------------------------
+2026-07-22  Session 5 (rendering-engine foundation):
+  Added enkarender/ — an independent, self-contained rendering-engine package (its own
+  README, ARCHITECTURE.md, pyproject, tests, offline demo). Architecturally inspired by
+  PaiGramTeam/EnkaNetwork.py (strict client/http/cache/model/assets layering; external
+  cached assets; hash-map name localization) but original code/structure/templates/layouts.
+  Layers: config/enums/exceptions/logging; api (pooled HttpTransport + EnkaClient raw
+  payloads); models (dataclasses + injectable-resolver parser); assets (CacheManager 3-tier,
+  Downloader, ResourceLoader, AssetManager); fonts (central FontManager); render (DrawingUtils
+  +Theme, Canvas composer, card-agnostic RenderEngine); templates (Component/Template ABCs +
+  RenderContext + registry + Profile/Build layouts); cards (CardBuilder ABC + registry +
+  Profile/Build builders). Facade: EnkaRenderer. Offline demo renders profile.png+build.png.
+  Independence: rendering⊥API, data⊥rendering, templates⊥I/O, engine⊥card-type. New card =
+  new Template + CardBuilder (+register), zero engine change. Does NOT touch bot/. Tests: 13
+  passed (cache/fonts/engine/cards/parser); bot suite still 118 passed. See enkarender/ARCHITECTURE.md.
+
 2026-07-22  Session 4 (performance optimization):
   Bottlenecks: (B1) enka+akasha fetched sequentially; (B2/B3) new aiohttp session per
   artwork icon and per akasha call (TCP+TLS handshake each time); (B4) card template
