@@ -1,0 +1,128 @@
+===============================================================================
+ PROJECT CONTEXT — Mihoyo- (Genshin Impact Telegram Bot)
+ Maintained by the recovery/QA agent. Update after every change/commit/push.
+===============================================================================
+
+-------------------------------------------------------------------------------
+PROJECT OVERVIEW
+-------------------------------------------------------------------------------
+A premium, Genshin Impact-only Telegram bot (python-telegram-bot v21.9, async).
+Links a player's Genshin UID and retrieves public account info, showcased
+characters + full builds, Spiral Abyss, Imaginarium Theater, banners, and build
+recommendations via public APIs (Enka.Network via `enka`, Akasha via akasha.cv).
+No Honkai/ZZZ features. This is the backend-foundation phase; premium UI/image
+layouts come later. Business logic is separated from rendering; all external
+calls are async and cached.
+
+-------------------------------------------------------------------------------
+REPOSITORY STRUCTURE
+-------------------------------------------------------------------------------
+bot/
+  main.py            entrypoint: builds Application, wires handlers, run_polling
+  config.py          pydantic-settings; reads .env (BOT_TOKEN, REDIS_URL, ...)
+  app_context.py     AppContext dependency container (built in post_init)
+  commands/          thin Telegram handlers -> services
+  services/          business logic (no Telegram/rendering)
+  api/               enka_client.py (Enka wrapper), akasha_client.py (raw aiohttp
+                     to akasha.cv; the pip akasha-py client is NOT used — 403 UA)
+  database/          redis_client.py (async pool, TLS upgrade), store.py (RedisStore)
+  cache/             redis_cache.py (JSON, TTL, prefix "cache")
+  renderer/          Renderer abstraction + Pillow backend (card layouts)
+  models/            framework-agnostic dataclasses + serialize.py (cache <-> model)
+  translations/      i18n.py + locales/*.json (en default, per-key fallback)
+  assets/            loader.py (dynamic, placeholder fallback) + bootstrap.py (startup
+                     download of card template + Noto font)
+  utils/             logging, errors, callbacks (callback_data encode/decode), text
+tests/               pytest suite (fakeredis; no network)
+scripts/             run_local.sh, watchdog.sh
+data/                (gitkeep; sqlite legacy paths gitignored)
+AUDIT_REPORT.md      full audit with severity levels (see it for details)
+
+Datastore: Redis (Upstash-compatible) is the primary source of truth. Degrades
+gracefully if Redis is briefly unavailable; the bot never crashes on API/Redis
+failures, private profiles, empty showcases, rate limits, or timeouts.
+
+-------------------------------------------------------------------------------
+CURRENT FEATURES (working)
+-------------------------------------------------------------------------------
+Account: /genshinlogin <UID>, /genshinlogout, /myuid, /myinfo
+Characters: /mycharacters (/myc) with inline paging + callback nav, /inspect <UID>
+Abyss: /abyss, /preabyss, /abysscard, /preabysscard
+Theater: /theater, /theatercard
+Misc: /banner, /build_guide, /settings, /language, /stats, /start, /help
+i18n: en/es/it/ja/zh (English default, per-key fallback)
+Ownership gate on inline keyboards; interaction tracking; group tracking.
+
+-------------------------------------------------------------------------------
+KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
+-------------------------------------------------------------------------------
+[CRITICAL] C1  Live BOT_TOKEN committed in .env.example + git history.
+               ACTION REQUIRED BY OWNER: rotate via @BotFather, blank the value,
+               purge history. Not auto-fixable by the agent.
+[MEDIUM]   M1  assets/loader.py resolve() can't find asset keys whose stem
+               contains a dot (probes wrong extension). Low real-world impact.
+[LOW]      L1  abyss_service max_floor: chamber==0 degrades to floor-only.
+[LOW]      L2  loader force-resizes assets to square (distorts non-square art).
+[LOW]      L3  pillow_renderer getpixel[:3] latent fragility (safe today).
+[LOW]      L4  characters.py CALLBACK_PREFIX="gsc" dead/misleading constant.
+[LOW]      L5  akasha-py dependency declared but unused.
+
+-------------------------------------------------------------------------------
+FIX HISTORY
+-------------------------------------------------------------------------------
+2026-07-22  [HIGH H1] enka_client._map_weapon rewritten.
+  Root cause: read main_stat/sub_stat/type attrs that don't exist on enka 2.5.20's
+  Weapon (fields: ..., stats: list[Stat]); item_type is always "ITEM_WEAPON".
+  Result: weapon_type + main/sub stat were always None (weapon type never rendered).
+  Fix: read stats list (main = FIGHT_PROP_BASE_ATTACK, order-independent; sub = the
+  other), derive weapon class from icon filename (UI_EquipIcon_<Class>_...).
+  Files: bot/api/enka_client.py, tests/test_enka_mapping.py (+3 regression tests).
+  Verified: reproduced None->fixed; 94 passed; cache JSON round-trip preserves fields.
+
+-------------------------------------------------------------------------------
+TESTING HISTORY
+-------------------------------------------------------------------------------
+2026-07-22  Clean venv (Python 3.13.13) + pip install -r requirements.txt: OK.
+2026-07-22  `python -c "import bot.main"`: OK.
+2026-07-22  Baseline `pytest`: 91 passed.
+2026-07-22  Dependency-graph build with fakeredis (build_app_context): OK
+            (redis.verify() returns False only because no live Redis — expected).
+2026-07-22  H1 reproduction (real enka Weapon via model_construct): all fields None.
+2026-07-22  H1 post-fix direct checks: Sword / Base ATK 674.0 / CRIT DMG 44.1;
+            order-independence, each weapon class from icon, empty-stats, None-weapon
+            — ALL ASSERTIONS PASSED.
+2026-07-22  Post-fix `pytest`: 94 passed (91 baseline + 3 new, no regressions).
+2026-07-22  Cache round-trip (showcase_to_dict -> json -> showcase_from_dict):
+            weapon fields preserved (Sword/Base ATK/674.0/CRIT DMG/44.1).
+
+-------------------------------------------------------------------------------
+DEPLOYMENT NOTES
+-------------------------------------------------------------------------------
+Requires: BOT_TOKEN (@BotFather) and REDIS_URL (Upstash; redis:// auto-upgraded to
+rediss://) in .env. Run: `python -m bot.main`. Startup downloads card template +
+Noto font once (best-effort; degrades to placeholder/default font). No Docker file
+present in repo. NOTE: no live Redis or live Telegram connection was made during
+this audit (fakeredis + offline reproduction only) — a live smoke test against a
+real BOT_TOKEN/REDIS_URL still needs to be run by the owner in the target env.
+
+-------------------------------------------------------------------------------
+FUTURE TASKS
+-------------------------------------------------------------------------------
+- OWNER: rotate leaked BOT_TOKEN and purge from history (C1).
+- Optionally fix M1 (dotted asset keys) and L1-L5 if they become relevant.
+- Surface the now-populated weapon main/sub stats in the profile card text/layout
+  (data is available but not yet displayed).
+- Live smoke test against real Telegram + Upstash Redis.
+
+-------------------------------------------------------------------------------
+SESSION LOG
+-------------------------------------------------------------------------------
+2026-07-22  Session 1 (recovery/QA agent):
+  - Indexed repo (README, requirements, .env.example, gitignore, git log).
+  - Installed deps in venv; import + baseline test smoke (91 passed).
+  - Fan-out audit of all modules; produced AUDIT_REPORT.md.
+  - Found + reproduced HIGH weapon-mapping bug against installed enka 2.5.20.
+  - Fixed enka_client._map_weapon; added 3 regression tests; 94 passed.
+  - Verified cache round-trip. Created context.txt + AUDIT_REPORT.md.
+  - Committed (see Fix History / git log for hash) and attempted push.
+===============================================================================

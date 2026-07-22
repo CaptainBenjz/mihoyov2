@@ -181,18 +181,32 @@ class EnkaClient:
     def _map_weapon(self, rw: Any) -> Weapon | None:
         if rw is None:
             return None
+        icon = _as_url(_get(rw, "icon"))
+        # enka's Weapon exposes stats as a list[Stat] (``weaponStats``): the main stat
+        # (FIGHT_PROP_BASE_ATTACK) plus at most one secondary stat. There is no
+        # ``main_stat``/``sub_stat``/``type`` attribute on the 2.5.20 model, so read the list.
+        stats = list(_get(rw, "stats", default=[]) or [])
+        main = next(
+            (s for s in stats if getattr(getattr(s, "type", None), "name", "") == "FIGHT_PROP_BASE_ATTACK"),
+            None,
+        )
+        if main is None and stats:
+            main = stats[0]
+        sub = next((s for s in stats if s is not main), None)
         return Weapon(
             name=str(_get(rw, "name", default="?") or "?"),
             level=int(_num(_get(rw, "level", default=1), 1)),
             refinement=int(_num(_get(rw, "refinement", default=1), 1)),
             ascension=int(_num(_get(rw, "ascension", default=0))),
             rarity=_opt_int(_get(rw, "rarity")),
-            weapon_type=_weapon_type(_get(rw, "type", "item_type", "weapon_type")),
-            icon=_as_url(_get(rw, "icon")),
-            main_stat_name=_opt_str(_get(rw, "main_stat.name", "main_stat_name")),
-            main_stat_value=_opt_float(_get(rw, "main_stat.value", "main_stat_value")),
-            sub_stat_name=_opt_str(_get(rw, "sub_stat.name", "sub_stat_name")),
-            sub_stat_value=_opt_float(_get(rw, "sub_stat.value", "sub_stat_value")),
+            # The weapon class (Sword/Claymore/Polearm/Bow/Catalyst) is not a scalar field on
+            # enka's Weapon; it is encoded in the icon filename (``UI_EquipIcon_Sword_...``).
+            weapon_type=_weapon_type(icon),
+            icon=icon,
+            main_stat_name=_opt_str(_get(main, "name")) if main is not None else None,
+            main_stat_value=_opt_float(_get(main, "value")) if main is not None else None,
+            sub_stat_name=_opt_str(_get(sub, "name")) if sub is not None else None,
+            sub_stat_value=_opt_float(_get(sub, "value")) if sub is not None else None,
         )
 
     def _map_talents(self, rts: Any) -> list[Talent]:

@@ -66,3 +66,71 @@ def test_map_showcase_defensive():
     assert c.level == 90
     assert c.stats.hp == 15000
     assert c.stats.crit_rate == 70.5
+
+
+class _FakeStatType:
+    def __init__(self, name):
+        self.name = name
+
+
+class _FakeWeaponStat:
+    def __init__(self, type_name, value, name):
+        self.type = _FakeStatType(type_name)
+        self.value = value
+        self.name = name
+
+
+class _FakeRawWeapon:
+    """Mirrors enka's Weapon: stats live in a ``stats`` list, not ``main_stat``/``sub_stat``."""
+
+    def __init__(self, icon, stats, name="Mistsplitter Reforged", level=90, refinement=1):
+        self.name = name
+        self.level = level
+        self.refinement = refinement
+        self.ascension = 6
+        self.rarity = 5
+        self.item_type = "ITEM_WEAPON"  # never encodes the weapon class
+        self.icon = icon
+        self.stats = stats
+
+
+def test_map_weapon_reads_stats_list_and_derives_type():
+    """Regression: weapon main/sub stats + type must populate from enka's stats list + icon."""
+    client = EnkaClient()
+    w = _FakeRawWeapon(
+        icon="https://enka.network/ui/UI_EquipIcon_Sword_Narukami.png",
+        stats=[
+            _FakeWeaponStat("FIGHT_PROP_BASE_ATTACK", 674.0, "Base ATK"),
+            _FakeWeaponStat("FIGHT_PROP_CRITICAL_HURT", 44.1, "CRIT DMG"),
+        ],
+    )
+    dw = client._map_weapon(w)
+    assert dw.weapon_type == "Sword"  # derived from the icon filename, not item_type
+    assert dw.main_stat_name == "Base ATK"
+    assert dw.main_stat_value == 674.0
+    assert dw.sub_stat_name == "CRIT DMG"
+    assert dw.sub_stat_value == 44.1
+
+
+def test_map_weapon_main_stat_is_order_independent():
+    client = EnkaClient()
+    w = _FakeRawWeapon(
+        icon="x/UI_EquipIcon_Pole_Kitain.png",
+        stats=[
+            _FakeWeaponStat("FIGHT_PROP_ATTACK_PERCENT", 27.6, "ATK%"),
+            _FakeWeaponStat("FIGHT_PROP_BASE_ATTACK", 542.0, "Base ATK"),
+        ],
+    )
+    dw = client._map_weapon(w)
+    assert dw.weapon_type == "Polearm"
+    assert dw.main_stat_name == "Base ATK"  # found by type, even though it is second in the list
+    assert dw.sub_stat_name == "ATK%"
+
+
+def test_map_weapon_handles_missing_stats_and_none():
+    client = EnkaClient()
+    dw = client._map_weapon(_FakeRawWeapon(icon="x/UI_EquipIcon_Bow_Amos.png", stats=[]))
+    assert dw.weapon_type == "Bow"
+    assert dw.main_stat_name is None
+    assert dw.sub_stat_name is None
+    assert client._map_weapon(None) is None
