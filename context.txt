@@ -58,18 +58,35 @@ KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
 -------------------------------------------------------------------------------
 [CRITICAL] C1  Live BOT_TOKEN committed in .env.example + git history.
                ACTION REQUIRED BY OWNER: rotate via @BotFather, blank the value,
-               purge history. Not auto-fixable by the agent.
-[MEDIUM]   M1  assets/loader.py resolve() can't find asset keys whose stem
-               contains a dot (probes wrong extension). Low real-world impact.
-[LOW]      L1  abyss_service max_floor: chamber==0 degrades to floor-only.
-[LOW]      L2  loader force-resizes assets to square (distorts non-square art).
-[LOW]      L3  pillow_renderer getpixel[:3] latent fragility (safe today).
-[LOW]      L4  characters.py CALLBACK_PREFIX="gsc" dead/misleading constant.
-[LOW]      L5  akasha-py dependency declared but unused.
+               purge history. Not auto-fixable by the agent. STILL OPEN.
+[MEDIUM]   M1  assets/loader.py resolve() couldn't find asset keys whose stem
+               contains a dot. FIXED (session 2).
+[LOW]      L1  abyss_service max_floor: chamber==0 degraded to floor-only. FIXED.
+[LOW]      L2  loader force-resizes assets to square (distorts non-square art). OPEN.
+[LOW]      L3  pillow_renderer getpixel[:3] latent fragility (safe today). OPEN.
+[LOW]      L4  characters.py CALLBACK_PREFIX="gsc" dead constant. FIXED (removed).
+[LOW]      L5  akasha-py dependency declared but unused. OPEN.
+[LOW]      N1  akasha_client top_percent dropped rank==0 via truthiness. FIXED.
+[LOW]      N2  account.py /myinfo abyss line hidden when floor/chamber==0. FIXED.
 
 -------------------------------------------------------------------------------
 FIX HISTORY
 -------------------------------------------------------------------------------
+2026-07-22  Session 2 (debug/QA agent):
+  [M1] loader.resolve() now strips a trailing segment only when it's a known image
+       extension, so dotted stems (e.g. char_1.2) resolve. +1 regression test.
+  [L1] abyss_service.get_abyss max_floor rewritten with explicit is-not-None checks;
+       chamber==0 (e.g. "9-0") is preserved. +new tests/test_abyss_service.py (4 tests).
+  [L4] Removed dead/misleading CALLBACK_PREFIX="gsc" constant from characters.py.
+  [N1] akasha_client top_percent: (rank and total) -> (rank is not None and total is not
+       None and total != 0); preserves rank==0, still guards divide-by-zero.
+  [N2] account.py /myinfo abyss line: (floor and chamber) -> explicit is-not-None checks.
+  Files: bot/assets/loader.py, bot/services/abyss_service.py, bot/commands/characters.py,
+         bot/api/akasha_client.py, bot/commands/account.py, tests/test_asset_loader.py,
+         tests/test_abyss_service.py (new).
+  Verified: import OK; full suite 99 passed (94 + 5 new); akasha edge cases checked
+  (total=0 -> None no crash; rank=0 -> 0.0 preserved).
+
 2026-07-22  [HIGH H1] enka_client._map_weapon rewritten.
   Root cause: read main_stat/sub_stat/type attrs that don't exist on enka 2.5.20's
   Weapon (fields: ..., stats: list[Stat]); item_type is always "ITEM_WEAPON".
@@ -94,6 +111,8 @@ TESTING HISTORY
 2026-07-22  Post-fix `pytest`: 94 passed (91 baseline + 3 new, no regressions).
 2026-07-22  Cache round-trip (showcase_to_dict -> json -> showcase_from_dict):
             weapon fields preserved (Sword/Base ATK/674.0/CRIT DMG/44.1).
+2026-07-22  Session 2 post-fix `pytest`: 99 passed (94 + 5 new, no regressions).
+2026-07-22  Session 2 import smoke (`import bot.main`): OK.
 
 -------------------------------------------------------------------------------
 DEPLOYMENT NOTES

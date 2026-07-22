@@ -55,11 +55,15 @@ class AssetLoader:
         """
         base = self._root / category
         candidate = base / name
-        if candidate.suffix and candidate.exists():
+        # Only treat a trailing ``.xxx`` as an extension if it's a known image
+        # extension; otherwise it's part of the stem (e.g. ``char_1.2``) and must
+        # not be stripped, or the asset can never be resolved.
+        known_suffix = candidate.suffix.lower() in _EXTENSIONS
+        if known_suffix and candidate.exists():
             return candidate
-        # No/unknown extension: try known image extensions.
+        # No/unknown extension: try known image extensions on the full name.
         stem = name
-        if candidate.suffix:
+        if known_suffix:
             stem = name[: -len(candidate.suffix)]
         for ext in _EXTENSIONS:
             p = base / f"{stem}{ext}"

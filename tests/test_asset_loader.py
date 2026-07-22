@@ -26,6 +26,18 @@ def test_resolve_finds_existing_file(tmp_path):
     assert loader.resolve("icons", "missing") is None
 
 
+def test_resolve_handles_dotted_stem(tmp_path):
+    # A key whose stem contains a dot (e.g. "char_1.2") must not have its
+    # trailing segment mistaken for an extension and stripped away.
+    (tmp_path / "characters").mkdir()
+    asset = tmp_path / "characters" / "char_1.2.png"
+    Image.new("RGBA", (10, 10)).save(asset)
+
+    loader = AssetLoader(root=tmp_path)
+    assert loader.resolve("characters", "char_1.2") == asset
+    assert loader.resolve("characters", "char_1.2.png") == asset
+
+
 def test_load_resizes(tmp_path):
     (tmp_path / "backgrounds").mkdir()
     Image.new("RGBA", (50, 50)).save(tmp_path / "backgrounds" / "bg.png")

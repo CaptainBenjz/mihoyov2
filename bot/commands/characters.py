@@ -36,8 +36,6 @@ logger = get_logger(__name__)
 PAGE_SIZE = 8       # character buttons per page
 COLUMNS = 2
 
-CALLBACK_PREFIX = "gsc"  # matches the CallbackQueryHandler pattern in main.py
-
 
 # --------------------------------------------------------------------------- commands
 @guard

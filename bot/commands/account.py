@@ -76,7 +76,7 @@ async def my_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append(t("account.myinfo_signature", lang, signature=p.signature))
     if p.achievements is not None:
         lines.append(t("account.myinfo_achievements", lang, achievements=p.achievements))
-    if p.abyss_floor and p.abyss_chamber:
+    if p.abyss_floor is not None and p.abyss_chamber is not None:
         lines.append(t("account.myinfo_abyss", lang, floor=p.abyss_floor, chamber=p.abyss_chamber))
 
     await reply(update, "\n".join(lines))

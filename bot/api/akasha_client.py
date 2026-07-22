@@ -81,7 +81,11 @@ class AkashaClient:
                 total = _first_int(best, "outOf", "out_of", "total")
                 category = _first_str(best, "name", "short")
                 calc_id = _first_str(best, "calculationId", "calculation_id", "id")
-                top_percent = (rank / total * 100.0) if (rank and total) else None
+                top_percent = (
+                    (rank / total * 100.0)
+                    if (rank is not None and total is not None and total != 0)
+                    else None
+                )
                 # Debug aid: if the calc exists but core fields didn't parse, say which.
                 for label, value in (("ranking", rank), ("outOf", total), ("name", category)):
                     if value is None:

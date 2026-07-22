@@ -22,7 +22,12 @@ class AbyssService:
         player = showcase.player
         floor = player.abyss_floor
         chamber = player.abyss_chamber
-        max_floor = f"{floor}-{chamber}" if floor and chamber else (str(floor) if floor else None)
+        if floor is not None and chamber is not None:
+            max_floor = f"{floor}-{chamber}"
+        elif floor is not None:
+            max_floor = str(floor)
+        else:
+            max_floor = None
         data = AbyssData(uid=uid, is_previous=previous, max_floor=max_floor)
         if not data.available:
             raise DataUnavailable(f"No abyss data for {uid}")
