@@ -136,8 +136,19 @@ async def _send_profile_card(
     if target is None:
         return
     portrait = await app.artwork_service.get_portrait(character)
+    # Prefetch every icon the card needs (weapon, talents, constellations, artifacts/set)
+    # concurrently, so the synchronous renderer can composite them without doing I/O.
+    icon_urls: list[str] = []
+    if character.weapon and character.weapon.icon:
+        icon_urls.append(character.weapon.icon)
+    icon_urls += [t.icon for t in character.talents if t.icon]
+    icon_urls += [n.icon for n in character.constellations if n.icon]
+    icon_urls += [a.icon for a in character.artifacts if a.icon]
+    icons = await app.artwork_service.get_images(icon_urls)
     png = app.renderer.render_profile_card(
-        CharacterCardContext(language=lang, character=character, player=player, portrait=portrait)
+        CharacterCardContext(
+            language=lang, character=character, player=player, portrait=portrait, icons=icons
+        )
     )
     caption = _build_caption(character, player)
     back_kb = InlineKeyboardMarkup(

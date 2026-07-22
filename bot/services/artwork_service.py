@@ -67,6 +67,40 @@ class ArtworkService:
         logger.info("No artwork available for character %s", character.name)
         return None
 
+    async def get_image(self, url: str | None) -> Image.Image | None:
+        """Fetch any icon URL as an RGBA image, cached on disk by filename. None on failure."""
+        if not url:
+            return None
+        fname = url.rsplit("/", 1)[-1] or "icon.png"
+        if not fname.lower().endswith(".png"):
+            fname += ".png"
+        cache_file = self._cache_dir / fname
+        if cache_file.exists():
+            try:
+                return Image.open(cache_file).convert("RGBA")
+            except Exception:  # noqa: BLE001
+                pass
+        img = await self._download_image(url)
+        if img is not None:
+            try:
+                self._cache_dir.mkdir(parents=True, exist_ok=True)
+                img.save(cache_file)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Could not cache icon %s: %s", cache_file, exc)
+        return img
+
+    async def get_images(self, urls) -> dict[str, Image.Image]:
+        """Fetch many icon URLs concurrently; returns {url: image} for those that succeed."""
+        import asyncio
+
+        unique = [u for u in dict.fromkeys(urls) if u]
+        results = await asyncio.gather(*(self.get_image(u) for u in unique), return_exceptions=True)
+        out: dict[str, Image.Image] = {}
+        for url, res in zip(unique, results):
+            if isinstance(res, Image.Image):
+                out[url] = res
+        return out
+
     async def _download_image(self, url: str) -> Image.Image | None:
         try:
             headers = {"User-Agent": "Mozilla/5.0 (MihoyoBot)"}

@@ -11,7 +11,7 @@ import dataclasses
 from typing import Any
 
 from bot.models.artifact import Artifact, ArtifactStat
-from bot.models.character import Character, CharacterStats, Talent
+from bot.models.character import Character, CharacterStats, ConstellationNode, Talent
 from bot.models.player import PlayerInfo, Showcase
 from bot.models.ranking import Ranking
 from bot.models.weapon import Weapon
@@ -28,10 +28,11 @@ def showcase_from_dict(data: dict[str, Any]) -> Showcase:
 
 
 def _character_from_dict(c: dict[str, Any]) -> Character:
-    nested = {"weapon", "talents", "artifacts", "stats", "ranking"}
+    nested = {"weapon", "talents", "constellations", "artifacts", "stats", "ranking"}
     base = {k: v for k, v in c.items() if k not in nested}
     weapon = Weapon(**c["weapon"]) if c.get("weapon") else None
     talents = [Talent(**t) for t in c.get("talents", [])]
+    constellations = [ConstellationNode(**n) for n in c.get("constellations", [])]
     artifacts = [_artifact_from_dict(a) for a in c.get("artifacts", [])]
     stats = CharacterStats(**c["stats"]) if c.get("stats") else CharacterStats()
     ranking = Ranking(**c["ranking"]) if c.get("ranking") else None
@@ -39,6 +40,7 @@ def _character_from_dict(c: dict[str, Any]) -> Character:
         **base,
         weapon=weapon,
         talents=talents,
+        constellations=constellations,
         artifacts=artifacts,
         stats=stats,
         ranking=ranking,

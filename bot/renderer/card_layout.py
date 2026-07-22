@@ -64,8 +64,18 @@ NAME_MAX_WIDTH = 250
 RARITY_STARS_POS = (120, 74)     # header rarity stars (top-left)
 TITLE_POS = (120, 96)
 
-# --- Left rail ------------------------------------------------------------------------
+# --- Left rail: 6 constellation node centres (top emblem = C1, then 5 below) -----------
+CONSTELLATION_NODES = [(58, 165), (58, 233), (58, 295), (58, 357), (58, 418), (58, 480)]
+CONSTELLATION_NODE_RADIUS = 26
 FRIENDSHIP_POS = (120, 560)      # value drawn after the "Friendship" pill label
+
+# --- Icon boxes (centre, size) for dynamically-fetched icons --------------------------
+WEAPON_ICON_BOX = (445, 168, 78)          # (cx, cy, diameter)
+TALENT_ICON_BOXES = [(428, 565, 44), (492, 565, 44), (557, 565, 44)]
+SET_ICON_BOX = (812, 536, 44)             # (cx, cy, diameter)
+ARTIFACT_ICON_BOXES = [                    # (cx, cy, diameter) per card
+    (930, 112, 76), (930, 225, 76), (930, 338, 76), (930, 451, 76), (930, 564, 76),
+]
 
 # --- Top level/constellation/rarity bar ----------------------------------------------
 LEVEL_VALUE_POS = (450, 62)      # centered under LEVEL

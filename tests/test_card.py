@@ -78,3 +78,33 @@ def test_render_profile_card_no_ranking_still_renders():
         CharacterCardContext(language="en", character=ch, player=PlayerInfo(uid="1"))
     )
     assert png.startswith(PNG_MAGIC)
+
+
+def test_render_with_constellation_lock_states():
+    from bot.models.character import ConstellationNode
+    nodes = [ConstellationNode(name=f"C{i+1}", unlocked=(i < 3)) for i in range(6)]
+    ch = _character(constellation=3, constellations=nodes, ranking=None)
+    png = PillowRenderer().render_profile_card(
+        CharacterCardContext(language="en", character=ch, player=PlayerInfo(uid="1"))
+    )
+    assert png.startswith(PNG_MAGIC)
+
+
+def test_weapon_type_and_url_helpers():
+    from bot.api.enka_client import _as_url, _weapon_type
+    assert _weapon_type("WEAPON_SWORD_ONE_HAND") == "Sword"
+    assert _weapon_type("WEAPON_POLE") == "Polearm"
+    assert _weapon_type("WEAPON_BOW") == "Bow"
+    assert _as_url("https://enka.network/ui/x.png") == "https://enka.network/ui/x.png"
+    assert _as_url(None) is None
+
+
+def test_serialize_roundtrips_constellations():
+    from bot.models.character import ConstellationNode
+    from bot.models.serialize import showcase_from_dict, showcase_to_dict
+    from bot.models.player import Showcase
+    ch = _character(constellations=[ConstellationNode(name="C1", unlocked=True, icon="u")])
+    sc = Showcase(player=PlayerInfo(uid="1"), characters=[ch])
+    back = showcase_from_dict(showcase_to_dict(sc))
+    node = back.characters[0].constellations[0]
+    assert node.name == "C1" and node.unlocked is True and node.icon == "u"

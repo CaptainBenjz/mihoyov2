@@ -36,6 +36,9 @@ class CharacterCardContext(RenderContext):
     player: PlayerInfo | None = None
     # Pre-fetched character artwork (PIL.Image) or None to use the empty portrait frame.
     portrait: object | None = None
+    # Pre-fetched icons keyed by their source URL: {url: PIL.Image}. Prefetched (async) in the
+    # command layer so the synchronous renderer can composite them without doing I/O.
+    icons: dict = field(default_factory=dict)
 
 
 @dataclass(slots=True)

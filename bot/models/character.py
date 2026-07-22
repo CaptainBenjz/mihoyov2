@@ -21,6 +21,16 @@ class Talent:
 
     name: str
     level: int
+    icon: str | None = None          # full icon URL for dynamic fetch
+
+
+@dataclass(slots=True)
+class ConstellationNode:
+    """One constellation node and whether the player has unlocked it."""
+
+    name: str
+    unlocked: bool
+    icon: str | None = None          # full icon URL for dynamic fetch
 
 
 @dataclass(slots=True)
@@ -59,6 +69,7 @@ class Character:
 
     weapon: Weapon | None = None
     talents: list[Talent] = field(default_factory=list)
+    constellations: list[ConstellationNode] = field(default_factory=list)
     artifacts: list[Artifact] = field(default_factory=list)
     stats: CharacterStats = field(default_factory=CharacterStats)
 

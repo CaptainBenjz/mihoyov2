@@ -175,6 +175,68 @@ class PillowRenderer(Renderer):
         ImageDraw.Draw(mask).ellipse([0, 0, w - 1, h - 1], fill=255)
         base.paste(backdrop, (left, top), mask)
 
+    @staticmethod
+    def _circle_icon(img: Image.Image, diameter: int) -> Image.Image:
+        """Return the icon scaled to ``diameter`` and clipped to a circle (anti-aliased)."""
+        icon = img.convert("RGBA")
+        # Cover-fit into the circle box.
+        iw, ih = icon.size
+        scale = max(diameter / iw, diameter / ih)
+        icon = icon.resize((max(1, round(iw * scale)), max(1, round(ih * scale))), Image.LANCZOS)
+        left = (icon.width - diameter) // 2
+        top = (icon.height - diameter) // 2
+        icon = icon.crop((left, top, left + diameter, top + diameter))
+        mask = Image.new("L", (diameter, diameter), 0)
+        ImageDraw.Draw(mask).ellipse([0, 0, diameter - 1, diameter - 1], fill=255)
+        # Combine with the icon's own alpha so transparent icons stay transparent.
+        mask = Image.composite(icon.getchannel("A"), Image.new("L", mask.size, 0), mask)
+        out = Image.new("RGBA", (diameter, diameter), (0, 0, 0, 0))
+        out.paste(icon, (0, 0), mask)
+        return out
+
+    def _paste_icon(self, base, icons, url, box, *, ring=None, ring_width=3, fit=False):
+        """Composite a pre-fetched icon (by URL) centred in ``box`` = (cx, cy, diameter)."""
+        cx, cy, d = box
+        x0, y0 = cx - d // 2, cy - d // 2
+        if ring is not None:
+            ImageDraw.Draw(base).ellipse([x0 - 2, y0 - 2, x0 + d + 1, y0 + d + 1],
+                                         outline=(*ring, 255), width=ring_width)
+        img = icons.get(url) if url else None
+        if img is None:
+            return False
+        if fit:  # square-fit (weapon/artifact icons already have transparent margins)
+            icon = img.convert("RGBA")
+            iw, ih = icon.size
+            scale = min(d / iw, d / ih)
+            icon = icon.resize((max(1, round(iw * scale)), max(1, round(ih * scale))), Image.LANCZOS)
+            base.alpha_composite(icon, (cx - icon.width // 2, cy - icon.height // 2))
+        else:
+            base.alpha_composite(self._circle_icon(img, d), (x0, y0))
+        return True
+
+    def _draw_constellations(self, base, draw, character, icons, theme) -> None:
+        """Render the 6 constellation nodes with real lock state (C-level from Akasha)."""
+        nodes = character.constellations or []
+        unlocked_count = character.constellation
+        accent = theme["accent"]
+        for i, (cx, cy) in enumerate(card_layout.CONSTELLATION_NODES):
+            d = card_layout.CONSTELLATION_NODE_RADIUS * 2
+            x0, y0 = cx - d // 2, cy - d // 2
+            node = nodes[i] if i < len(nodes) else None
+            unlocked = node.unlocked if node is not None else (i < unlocked_count)
+            # Replace the baked node: dark disc base so template lock/emblem never shows through.
+            draw.ellipse([x0, y0, x0 + d, y0 + d], fill=(24, 22, 28, 255),
+                         outline=(*accent, 255) if unlocked else (90, 86, 96, 255), width=2)
+            icon_img = icons.get(node.icon) if (node and node.icon) else None
+            if icon_img is not None:
+                glyph = self._circle_icon(icon_img, d - 8)
+                if not unlocked:  # locked -> dim + desaturate
+                    from PIL import ImageEnhance
+                    glyph = ImageEnhance.Brightness(glyph.convert("RGBA")).enhance(0.35)
+                base.alpha_composite(glyph, (x0 + 4, y0 + 4))
+            elif not unlocked:
+                draw.text((cx, cy), "🔒", font=self._pfont(20), fill=(150, 146, 156), anchor="mm")
+
     def _elemental_bonus(self, stats, element):
         """Return the character's elemental DMG bonus as a percentage, or None."""
         if stats is None:
@@ -248,14 +310,27 @@ class PillowRenderer(Renderer):
                   font=self._pfont(20, 700), fill=(240, 232, 214), anchor="mm")
         self._stars(draw, card_layout.RARITY_BAR_STARS_POS, c.rarity or 0, size=18, anchor="mm")
 
-        # -- weapon --
+        # -- constellation rail (real lock state, dynamic icons) --
+        self._draw_constellations(base, draw, c, ctx.icons, theme)
+
+        # -- weapon (icon + rarity stars + name + level + refinement + type) --
         if c.weapon:
+            self._paste_icon(base, ctx.icons, c.weapon.icon, card_layout.WEAPON_ICON_BOX, fit=True)
             self._draw_fit(draw, card_layout.WEAPON_NAME_POS, c.weapon.name or "--",
                            max_width=card_layout.WEAPON_NAME_MAX_WIDTH, size=22, weight=700, color=dark)
+            self._stars(draw, (card_layout.WEAPON_ICON_BOX[0], card_layout.WEAPON_ICON_BOX[1] + 44),
+                        c.weapon.rarity or 0, size=13, anchor="mm")
+            if c.weapon.weapon_type:
+                draw.text(card_layout.WEAPON_TYPE_POS, c.weapon.weapon_type, font=self._pfont(16),
+                          fill=dark, anchor="lm")
             draw.text(card_layout.WEAPON_LEVEL_POS, f"Lv. {c.weapon.level}", font=self._pfont(18),
                       fill=dark, anchor="lm")
             draw.text(card_layout.WEAPON_REFINE_POS, f"R{c.weapon.refinement}",
                       font=self._pfont(18, 700), fill=(240, 232, 214), anchor="mm")
+
+        # -- talent icons --
+        for box, tal in zip(card_layout.TALENT_ICON_BOXES, (c.talents or [])[:3]):
+            self._paste_icon(base, ctx.icons, tal.icon, box, fit=True)
 
         # -- base stats (values right-aligned per labelled row) --
         s = c.stats
@@ -284,6 +359,7 @@ class PillowRenderer(Renderer):
             if art is None:
                 continue
             dy = card_layout.ARTIFACT_CARD_TOP[i] - card_layout.ARTIFACT_CARD_REF_TOP
+            self._paste_icon(base, ctx.icons, art.icon, card_layout.ARTIFACT_ICON_BOXES[i], fit=True)
             if art.main_stat:
                 mtext = f"{art.main_stat.name} {art.main_stat.value:g}"
                 self._draw_fit(draw, (card_layout.ARTIFACT_MAIN_STAT_POS[0],
@@ -296,11 +372,13 @@ class PillowRenderer(Renderer):
                 self._draw_fit(draw, (card_layout.ARTIFACT_SUBSTAT_X, sy + dy), stext,
                                max_width=135, size=13, color=(90, 78, 62))
 
-        # -- set bonus (dominant set from equipped artifacts) --
-        set_name, set_count = self._dominant_set(c.artifacts or [])
+        # -- set bonus (dominant set from equipped artifacts) + set icon --
+        set_name, set_count, set_icon = self._dominant_set(c.artifacts or [])
         if set_name:
             self._draw_fit(draw, card_layout.SET_NAME_POS, f"{set_name} ({set_count})",
                            max_width=150, size=16, weight=700, color=dark, anchor="mm")
+        if set_icon:
+            self._paste_icon(base, ctx.icons, set_icon, card_layout.SET_ICON_BOX, fit=True)
 
         # -- bottom summary bar --
         bottom_vals = [
@@ -313,23 +391,23 @@ class PillowRenderer(Renderer):
             draw.text((x, card_layout.BOTTOM_BAR_Y), val, font=self._pfont(15, 600),
                       fill=(228, 220, 205), anchor="mm")
 
-        # -- Akasha ranking badge (only if data exists) --
-        r = c.ranking
-        if r is not None and r.available:
-            self._draw_ranking_badge(base, draw, r, accent)
-
+        # Akasha ranking is intentionally NOT drawn on the image — it lives only in the
+        # Telegram caption, keeping the card visually clean.
         return self._to_png(base)
 
     @staticmethod
     def _dominant_set(artifacts):
         counts: dict[str, int] = {}
+        icons: dict[str, str] = {}
         for a in artifacts:
             if a.set_name:
                 counts[a.set_name] = counts.get(a.set_name, 0) + 1
+                if a.icon and a.set_name not in icons:
+                    icons[a.set_name] = a.icon
         if not counts:
-            return None, 0
+            return None, 0, None
         name = max(counts, key=counts.get)
-        return name, counts[name]
+        return name, counts[name], icons.get(name)
 
     def _draw_ranking_badge(self, base, draw, ranking, accent) -> None:
         box = card_layout.RANKING_BADGE_BOX

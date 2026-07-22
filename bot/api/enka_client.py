@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from bot.models.artifact import Artifact, ArtifactStat
-from bot.models.character import Character, CharacterStats, Talent
+from bot.models.character import Character, CharacterStats, ConstellationNode, Talent
 from bot.models.player import PlayerInfo, Showcase
 from bot.models.weapon import Weapon
 from bot.utils.errors import (
@@ -154,6 +154,7 @@ class EnkaClient:
     def _map_character(self, rc: Any) -> Character:
         weapon = self._map_weapon(_get(rc, "weapon"))
         talents = self._map_talents(_get(rc, "talents", default=[]) or [])
+        constellations = self._map_constellations(_get(rc, "constellations", default=[]) or [])
         artifacts = self._map_artifacts(_get(rc, "artifacts", default=[]) or [])
         stats = self._map_stats(_get(rc, "stats", default=None))
         # The Enka icon object exposes full CDN URLs: gacha (splash), front, circle, side.
@@ -165,12 +166,14 @@ class EnkaClient:
             rarity=_opt_int(_get(rc, "rarity")),
             level=int(_num(_get(rc, "level", default=1), 1)),
             ascension=int(_num(_get(rc, "ascension", default=0))),
-            constellation=int(_num(_get(rc, "constellation", "constellations_unlocked", default=0))),
+            constellation=sum(1 for n in constellations if n.unlocked)
+            or int(_num(_get(rc, "constellations_unlocked", "constellation", default=0))),
             friendship=_opt_int(_get(rc, "friendship_level", "friendship")),
             icon=self._icon_key(_icon_url(icon_obj, "front", "circle", "side")),
             art=_icon_url(icon_obj, "gacha", "front", "circle"),  # full splash-art URL
             weapon=weapon,
             talents=talents,
+            constellations=constellations,
             artifacts=artifacts,
             stats=stats,
         )
@@ -184,7 +187,8 @@ class EnkaClient:
             refinement=int(_num(_get(rw, "refinement", default=1), 1)),
             ascension=int(_num(_get(rw, "ascension", default=0))),
             rarity=_opt_int(_get(rw, "rarity")),
-            icon=self._icon_key(_get(rw, "icon")),
+            weapon_type=_weapon_type(_get(rw, "type", "item_type", "weapon_type")),
+            icon=_as_url(_get(rw, "icon")),
             main_stat_name=_opt_str(_get(rw, "main_stat.name", "main_stat_name")),
             main_stat_value=_opt_float(_get(rw, "main_stat.value", "main_stat_value")),
             sub_stat_name=_opt_str(_get(rw, "sub_stat.name", "sub_stat_name")),
@@ -198,9 +202,22 @@ class EnkaClient:
                 Talent(
                     name=str(_get(rt, "name", default="?") or "?"),
                     level=int(_num(_get(rt, "level", default=0))),
+                    icon=_as_url(_get(rt, "icon")),
                 )
             )
         return talents
+
+    def _map_constellations(self, rcs: Any) -> list[ConstellationNode]:
+        nodes: list[ConstellationNode] = []
+        for rc in rcs or []:
+            nodes.append(
+                ConstellationNode(
+                    name=str(_get(rc, "name", default="") or ""),
+                    unlocked=bool(_get(rc, "unlocked", default=False)),
+                    icon=_as_url(_get(rc, "icon")),
+                )
+            )
+        return nodes
 
     def _map_artifacts(self, ras: Any) -> list[Artifact]:
         artifacts: list[Artifact] = []
@@ -230,7 +247,7 @@ class EnkaClient:
                     set_name=_opt_str(_get(ra, "set_name", "set.name")),
                     level=int(_num(_get(ra, "level", default=0))),
                     rarity=_opt_int(_get(ra, "rarity")),
-                    icon=self._icon_key(_get(ra, "icon")),
+                    icon=_as_url(_get(ra, "icon")),
                     main_stat=main_stat,
                     sub_stats=subs,
                 )
@@ -345,6 +362,31 @@ class EnkaClient:
         if isinstance(candidate, str):
             return candidate.rsplit("/", 1)[-1]
         return None
+
+
+def _as_url(val: Any) -> str | None:
+    """Return a full icon URL. Enka icon objects stringify to their CDN URL; strings pass through."""
+    if val is None:
+        return None
+    if isinstance(val, str):
+        return val or None
+    for attr in ("url", "gacha", "front", "circle"):
+        v = getattr(val, attr, None)
+        if isinstance(v, str) and v:
+            return v
+    text = str(val)
+    return text if text.startswith("http") else None
+
+
+def _weapon_type(val: Any) -> str | None:
+    """Normalize an Enka weapon type (e.g. 'WEAPON_SWORD_ONE_HAND'/'ITEM_WEAPON') to a label."""
+    if val is None:
+        return None
+    raw = str(getattr(val, "name", val)).upper()
+    for label in ("SWORD", "CLAYMORE", "POLE", "BOW", "CATALYST"):
+        if label in raw:
+            return {"POLE": "Polearm"}.get(label, label.capitalize())
+    return None
 
 
 def _icon_url(icon_obj: Any, *attrs: str) -> str | None:

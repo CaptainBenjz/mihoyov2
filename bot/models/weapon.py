@@ -14,7 +14,8 @@ class Weapon:
     refinement: int = 1          # 1..5
     ascension: int = 0
     rarity: int | None = None    # star rating, if known
-    icon: str | None = None      # icon key/name for asset lookup
+    weapon_type: str | None = None  # e.g. Sword / Bow / Catalyst / Claymore / Polearm
+    icon: str | None = None      # full icon URL for dynamic fetch
     main_stat_name: str | None = None
     main_stat_value: float | None = None
     sub_stat_name: str | None = None
