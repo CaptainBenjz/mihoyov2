@@ -1,0 +1,28 @@
+# Telegram framework (async)
+python-telegram-bot[all]==21.9
+
+# Public Genshin data sources (async wrappers by seriaati)
+enka==2.5.20
+akasha-py==0.3.0
+
+# Database (async ORM over SQLite; swappable to Postgres)
+SQLAlchemy==2.0.36
+aiosqlite==0.20.0
+greenlet==3.1.1
+
+# Configuration
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# Rendering
+Pillow==11.1.0
+
+# Caching helpers
+cachetools==5.5.0
+
+# HTTP (used by API wrappers / fallbacks)
+aiohttp==3.11.11
+
+# --- Development / testing ---
+pytest==8.3.4
+pytest-asyncio==0.25.2
