@@ -7,12 +7,14 @@ from typing import Awaitable, Callable
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from bot.app_context import BOT_DATA_KEY, AppContext
 from bot.translations.i18n import t
 from bot.utils.errors import BotError
 from bot.utils.logging import get_logger
+from bot.utils.text import strip_custom_emoji
 
 logger = get_logger(__name__)
 
@@ -75,10 +77,30 @@ async def _safe_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
 
 
 async def reply(update: Update, text: str, **kwargs) -> None:
-    """Reply to a message or callback query with HTML formatting by default."""
+    """Reply to a message or callback query with HTML formatting by default.
+
+    If the text contains premium custom emoji (``<tg-emoji>`` tags) and the bot is not
+    allowed to send them (e.g. the owner has no Telegram Premium), Telegram rejects the
+    send with a BadRequest; we transparently retry with the standard-emoji fallback so
+    the user always receives the message.
+    """
     kwargs.setdefault("parse_mode", ParseMode.HTML)
     kwargs.setdefault("disable_web_page_preview", True)
+
+    target = None
     if update.message is not None:
-        await update.message.reply_text(text, **kwargs)
+        target = update.message
     elif update.callback_query is not None and update.callback_query.message is not None:
-        await update.callback_query.message.reply_text(text, **kwargs)
+        target = update.callback_query.message
+    if target is None:
+        return
+
+    try:
+        await target.reply_text(text, **kwargs)
+    except BadRequest as exc:
+        fallback = strip_custom_emoji(text)
+        if fallback != text:
+            logger.info("Custom emoji not sent (%s); retrying with fallback emoji", exc)
+            await target.reply_text(fallback, **kwargs)
+        else:
+            raise

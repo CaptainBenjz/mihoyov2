@@ -5,19 +5,69 @@ from __future__ import annotations
 import pytest
 
 from bot.database.repository import UserRepository
-from bot.services.account_service import AccountService, validate_uid
+from bot.services.account_service import AccountService, uid_region, validate_uid
 from bot.utils.errors import AccountNotLinked, InvalidUID
 
 
-@pytest.mark.parametrize("uid", ["901211014", "600000000", "123456789"])
+@pytest.mark.parametrize(
+    "uid",
+    [
+        # 9-digit (single-digit prefix)
+        "601234567",  # America
+        "712345678",  # Europe
+        "812345678",  # Asia
+        "901211014",  # TW/HK/MO
+        # 10-digit (two-digit prefix)
+        "1601234567",  # America
+        "1712345678",  # Europe
+        "1812345678",  # Asia
+        "1901234567",  # TW/HK/MO
+    ],
+)
 def test_validate_uid_accepts_valid(uid):
     assert validate_uid(uid) == uid
 
 
-@pytest.mark.parametrize("uid", ["", "123", "0123456789", "abcdefghi", "12345678", "1234567890"])
+@pytest.mark.parametrize(
+    "uid",
+    [
+        "",  # empty
+        "123",  # too short
+        "12345678",  # 8 digits
+        "12345678901",  # 11 digits
+        "abcdefghi",  # non-numeric
+        "90121101a",  # trailing letter
+        "123456789",  # 9-digit but CN prefix 1 (not in supported set)
+        "512345678",  # 9-digit prefix 5 (unsupported)
+        "1000000000",  # 10-digit prefix 10 (unsupported)
+        "1500000000",  # 10-digit prefix 15 (unsupported)
+        "2012345678",  # 10-digit prefix 20 (unsupported)
+    ],
+)
 def test_validate_uid_rejects_invalid(uid):
     with pytest.raises(InvalidUID):
         validate_uid(uid)
+
+
+@pytest.mark.parametrize(
+    "uid, region",
+    [
+        ("601234567", "America"),
+        ("1601234567", "America"),
+        ("712345678", "Europe"),
+        ("1712345678", "Europe"),
+        ("812345678", "Asia"),
+        ("1812345678", "Asia"),
+        ("901211014", "TW/HK/MO"),
+        ("1901234567", "TW/HK/MO"),
+    ],
+)
+def test_uid_region(uid, region):
+    assert uid_region(uid) == region
+
+
+def test_uid_whitespace_is_stripped():
+    assert validate_uid("  901211014  ") == "901211014"
 
 
 async def test_link_and_relink(session_factory):
