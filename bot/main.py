@@ -62,14 +62,17 @@ async def _bootstrap_assets() -> None:
         )
 
 
-async def _store_round_trip(application: Application) -> None:
+async def _store_round_trip(application: Application, redis_ok: bool = True) -> None:
     """Store + read back a Telegram user id, linked UID, language and setting, then clean up.
 
     Runs immediately after connecting so a broken persistence path is visible in the
     startup logs rather than only when a real user hits a command. Best-effort; never raises.
+    ``redis_ok`` is only used to label which backend actually served the round-trip, so the
+    log is never misread as "Redis works" when it was really the local fallback.
     """
     app_ctx = application.bot_data[BOT_DATA_KEY]
     store = app_ctx.users
+    backend = "Redis" if redis_ok else "LOCAL FALLBACK (not Redis)"
     try:
         await store.get_or_create(_DIAG_TID, app_ctx.settings.default_language)
         await store.link_uid(_DIAG_TID, "800000000", app_ctx.settings.default_language)
@@ -81,8 +84,8 @@ async def _store_round_trip(application: Application) -> None:
         setting = await store.get_setting(_DIAG_TID, "diag")
         ok = uid == "800000000" and lang == "en" and setting == "1"
         logger.info(
-            "Startup step 4/5: store round-trip | uid=%r language=%r setting=%r -> %s",
-            uid, lang, setting, "PASS" if ok else "FAIL",
+            "Startup step 4/5: store round-trip via %s | uid=%r language=%r setting=%r -> %s",
+            backend, uid, lang, setting, "PASS" if ok else "FAIL",
         )
     except Exception as exc:  # noqa: BLE001
         logger.error(
@@ -134,7 +137,8 @@ async def _post_init(application: Application) -> None:
         raise
 
     # Step 3: verify Redis + full CRUD self-test (connection/read/write/delete/ping).
-    if await app_ctx.redis.verify():
+    redis_ok = await app_ctx.redis.verify()
+    if redis_ok:
         logger.info("Startup step 3/5: Redis (primary datastore) is connected")
         await app_ctx.redis.self_test()
     else:
@@ -145,11 +149,21 @@ async def _post_init(application: Application) -> None:
         )
 
     # Step 4: persistence round-trip (user id / uid / language / settings).
-    await _store_round_trip(application)
+    await _store_round_trip(application, redis_ok)
 
     # Step 5: publish the command menu (best-effort).
     await _set_bot_commands(application)
     logger.info("Startup step 5/5: command menu published")
+
+    # One unambiguous line stating where user data actually lives.
+    if redis_ok:
+        logger.info("DATABASE STATUS: CONNECTED (Redis) — logins persist across redeploys.")
+    else:
+        logger.error(
+            "DATABASE STATUS: NOT CONNECTED — using the LOCAL FALLBACK file. Logins will "
+            "NOT survive a redeploy until REDIS_URL points at a reachable database. "
+            "Run scripts/check_redis.py to diagnose."
+        )
 
     # Last line before PTB's updater begins fetching updates.
     logger.info("Bot started successfully — beginning long-polling for updates")
