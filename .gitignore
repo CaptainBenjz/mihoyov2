@@ -6,6 +6,9 @@ data/*.db
 data/*.db-journal
 data/*.sqlite3
 
+# enka library runtime asset cache (downloaded at runtime)
+.enka_py/
+
 # Python
 __pycache__/
 *.py[cod]

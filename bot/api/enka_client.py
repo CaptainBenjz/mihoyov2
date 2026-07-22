@@ -222,7 +222,7 @@ class EnkaClient:
                 )
             artifacts.append(
                 Artifact(
-                    slot=str(_get(ra, "equip_type", "slot", "pos", default="?") or "?"),
+                    slot=self._slot_name(_get(ra, "equip_type", "slot", "pos")),
                     set_name=_opt_str(_get(ra, "set_name", "set.name")),
                     level=int(_num(_get(ra, "level", default=0))),
                     rarity=_opt_int(_get(ra, "rarity")),
@@ -233,17 +233,60 @@ class EnkaClient:
             )
         return artifacts
 
+    # Final-stat fight-prop -> our stat field. Percentage props are fractions (0.52 == 52%).
+    _FIGHT_PROP_FIELD = {
+        "FIGHT_PROP_MAX_HP": "hp",
+        "FIGHT_PROP_CUR_ATTACK": "atk",
+        "FIGHT_PROP_CUR_DEFENSE": "defense",
+        "FIGHT_PROP_CRITICAL": "crit_rate",
+        "FIGHT_PROP_CRITICAL_HURT": "crit_dmg",
+        "FIGHT_PROP_CHARGE_EFFICIENCY": "energy_recharge",
+        "FIGHT_PROP_ELEMENT_MASTERY": "elemental_mastery",
+    }
+    _FIGHT_PROP_PERCENT = {
+        "FIGHT_PROP_CRITICAL",
+        "FIGHT_PROP_CRITICAL_HURT",
+        "FIGHT_PROP_CHARGE_EFFICIENCY",
+    }
+
     def _map_stats(self, rstats: Any) -> CharacterStats:
         """Map the library's stat collection into our stat block.
 
-        Enka exposes stats as a mapping of fight-prop -> value object. We pull the ones we
-        model explicitly and keep everything else in ``extra`` so nothing is lost.
+        The GI client exposes ``character.stats`` as a ``dict[FightPropType, Stat]`` where
+        each key has a ``FIGHT_PROP_*`` name and each value has ``.value``. Percentage props
+        (crit rate/dmg, energy recharge) are fractions and are scaled to percentages here.
+        Everything we don't model explicitly is kept in ``extra`` so nothing is lost.
+
+        Falls back to named-attribute access for other/older library shapes.
         """
         stats = CharacterStats()
         if rstats is None:
             return stats
 
-        # Try named-property access first (common in the wrapper), then dict iteration.
+        # Preferred path: a dict-like mapping of FightPropType -> Stat.
+        items = None
+        if hasattr(rstats, "items"):
+            try:
+                items = list(rstats.items())
+            except Exception:  # noqa: BLE001
+                items = None
+
+        if items:
+            for key, val in items:
+                name = str(getattr(key, "name", key))
+                value = self._stat_value(val)
+                if value is None:
+                    continue
+                if name in self._FIGHT_PROP_PERCENT:
+                    value *= 100.0
+                field = self._FIGHT_PROP_FIELD.get(name)
+                if field is not None:
+                    setattr(stats, field, value)
+                else:
+                    stats.extra.setdefault(name, value)
+            return stats
+
+        # Fallback: named-attribute access (other library shapes / test doubles).
         named = {
             "hp": ("max_hp", "hp"),
             "atk": ("atk", "attack"),
@@ -254,24 +297,9 @@ class EnkaClient:
             "elemental_mastery": ("elemental_mastery",),
         }
         for field_name, candidates in named.items():
-            val = _get(rstats, *candidates)
-            value = self._stat_value(val)
+            value = self._stat_value(_get(rstats, *candidates))
             if value is not None:
                 setattr(stats, field_name, value)
-
-        # Sweep any dict-like collection into extra (keyed by stat name).
-        items = None
-        if hasattr(rstats, "items"):
-            try:
-                items = list(rstats.items())
-            except Exception:  # noqa: BLE001
-                items = None
-        if items:
-            for key, val in items:
-                name = str(getattr(key, "name", key))
-                value = self._stat_value(val)
-                if value is not None:
-                    stats.extra.setdefault(name, value)
         return stats
 
     @staticmethod
@@ -282,6 +310,24 @@ class EnkaClient:
             return float(val)
         inner = _get(val, "value")
         return _num(inner) if inner is not None else None
+
+    # Enka equip-type enum -> friendly artifact slot name. Handles both the enum name
+    # (FLOWER/FEATHER/...) and the underlying value (EQUIP_BRACER/...).
+    _SLOT_NAMES = {
+        "FLOWER": "Flower", "EQUIP_BRACER": "Flower",
+        "FEATHER": "Plume", "EQUIP_NECKLACE": "Plume",
+        "SANDS": "Sands", "EQUIP_SHOES": "Sands",
+        "GOBLET": "Goblet", "EQUIP_RING": "Goblet",
+        "CIRCLET": "Circlet", "EQUIP_DRESS": "Circlet",
+    }
+
+    @classmethod
+    def _slot_name(cls, val: Any) -> str:
+        """Normalize an artifact equip type to a friendly slot name."""
+        if val is None:
+            return "?"
+        raw = str(getattr(val, "name", val))
+        return cls._SLOT_NAMES.get(raw, raw.title())
 
     @staticmethod
     def _icon_key(val: Any) -> str | None:

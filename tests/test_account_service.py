@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from bot.database.repository import UserRepository
 from bot.services.account_service import AccountService, uid_region, validate_uid
 from bot.utils.errors import AccountNotLinked, InvalidUID
 
@@ -70,9 +69,8 @@ def test_uid_whitespace_is_stripped():
     assert validate_uid("  901211014  ") == "901211014"
 
 
-async def test_link_and_relink(session_factory):
-    users = UserRepository(session_factory)
-    service = AccountService(users)
+async def test_link_and_relink(store):
+    service = AccountService(store)
 
     uid, relink = await service.link(111, "901211014")
     assert uid == "901211014"
@@ -84,16 +82,14 @@ async def test_link_and_relink(session_factory):
     assert relink2 is True
 
 
-async def test_require_uid_raises_when_not_linked(session_factory):
-    users = UserRepository(session_factory)
-    service = AccountService(users)
+async def test_require_uid_raises_when_not_linked(store):
+    service = AccountService(store)
     with pytest.raises(AccountNotLinked):
         await service.require_uid(999)
 
 
-async def test_unlink(session_factory):
-    users = UserRepository(session_factory)
-    service = AccountService(users)
+async def test_unlink(store):
+    service = AccountService(store)
     await service.link(222, "901211014")
     assert await service.unlink(222) is True
     # Second unlink returns False (nothing to remove).

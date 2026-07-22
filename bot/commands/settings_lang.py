@@ -17,11 +17,11 @@ from bot.translations.i18n import t
 LANG_CALLBACK_PREFIX = "lang"
 
 
-def _language_keyboard() -> InlineKeyboardMarkup:
+def _language_keyboard(owner: int = 0) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     row: list[InlineKeyboardButton] = []
     for code, label in i18n.available_languages():
-        row.append(InlineKeyboardButton(label, callback_data=f"{LANG_CALLBACK_PREFIX}:{code}"))
+        row.append(InlineKeyboardButton(label, callback_data=f"{LANG_CALLBACK_PREFIX}:{code}:{owner}"))
         if len(row) == 2:
             rows.append(row)
             row = []
@@ -30,11 +30,20 @@ def _language_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def _callback_owner(data: str) -> int:
+    """Extract the owner user id (trailing segment) from a lang callback payload."""
+    parts = data.split(":")
+    if len(parts) > 2 and parts[2].isdigit():
+        return int(parts[2])
+    return 0
+
+
 @guard
 async def language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = await resolve_language(update, context)
+    owner = user_id_of(update) or 0
     await update.message.reply_text(
-        t("language.choose", lang), reply_markup=_language_keyboard(), parse_mode=ParseMode.HTML
+        t("language.choose", lang), reply_markup=_language_keyboard(owner), parse_mode=ParseMode.HTML
     )
 
 
@@ -46,8 +55,10 @@ async def on_language_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     app = get_app(context)
     tg_id = user_id_of(update)
     data = query.data or ""
-    code = data.split(":", 1)[1] if ":" in data else ""
+    parts = data.split(":")
+    code = parts[1] if len(parts) > 1 else ""
 
+    # Ownership is enforced centrally by the universal gate (bot.commands.ownership).
     if not i18n.is_supported(code) or tg_id is None:
         await query.answer()
         return
@@ -76,8 +87,12 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         lines.append(t("settings.not_linked_row", lang))
 
+    owner = tg_id or 0
     markup = InlineKeyboardMarkup(
-        [[InlineKeyboardButton(t("settings.change_language", lang), callback_data=f"{LANG_CALLBACK_PREFIX}:__menu__")]]
+        [[InlineKeyboardButton(
+            t("settings.change_language", lang),
+            callback_data=f"{LANG_CALLBACK_PREFIX}:__menu__:{owner}",
+        )]]
     )
     await update.message.reply_text("\n".join(lines), reply_markup=markup, parse_mode=ParseMode.HTML)
 
@@ -88,9 +103,11 @@ async def on_settings_menu_callback(update: Update, context: ContextTypes.DEFAUL
     if query is None:
         return
     lang = await resolve_language(update, context)
+    # Preserve the menu owner so the reopened language keyboard stays owner-restricted.
+    owner = _callback_owner(query.data or "")
     try:
         await query.edit_message_text(
-            t("language.choose", lang), reply_markup=_language_keyboard(), parse_mode=ParseMode.HTML
+            t("language.choose", lang), reply_markup=_language_keyboard(owner), parse_mode=ParseMode.HTML
         )
     except Exception:  # noqa: BLE001
         pass

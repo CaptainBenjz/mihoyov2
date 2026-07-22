@@ -43,7 +43,7 @@ async def my_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     uid = await app.account_service.require_uid(tg_id)
     showcase = await app.character_service.get_showcase(uid, lang)
-    text, markup = _render_list(showcase, uid, page=0, lang=lang, viewer_uid=uid)
+    text, markup = _render_list(showcase, uid, page=0, lang=lang, viewer_uid=uid, owner=tg_id)
     await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
 
@@ -57,9 +57,10 @@ async def inspect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     from bot.services.account_service import validate_uid
 
     uid = validate_uid(context.args[0])  # raises InvalidUID -> handled by @guard
-    viewer_uid = await app.account_service.get_uid(user_id_of(update)) if user_id_of(update) else None
+    tg_id = user_id_of(update)
+    viewer_uid = await app.account_service.get_uid(tg_id) if tg_id else None
     showcase = await app.character_service.get_showcase(uid, lang)
-    text, markup = _render_list(showcase, uid, page=0, lang=lang, viewer_uid=viewer_uid)
+    text, markup = _render_list(showcase, uid, page=0, lang=lang, viewer_uid=viewer_uid, owner=tg_id or 0)
     await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
 
@@ -75,6 +76,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     viewer_uid = await app.account_service.get_uid(tg_id) if tg_id else None
 
     cb = callbacks.decode(query.data or "")
+
+    # Ownership is enforced centrally by the universal gate (bot.commands.ownership),
+    # which runs before this handler; menus still embed the owner in their callback_data.
     try:
         if cb.action == callbacks.ACTION_NOOP:
             await query.answer()
@@ -87,14 +91,16 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 await query.answer(t("error.character_not_found", lang), show_alert=True)
                 return
             text = _render_character(character, lang)
-            markup = _character_keyboard(cb.uid, cb.page, lang)
+            markup = _character_keyboard(cb.uid, cb.page, lang, owner=cb.owner)
             await _safe_edit(query, text, markup)
             await query.answer()
             return
 
         # LIST / PAGE / BACK all resolve to showing the list at a page.
         showcase = await app.character_service.get_showcase(cb.uid, lang)
-        text, markup = _render_list(showcase, cb.uid, page=cb.page, lang=lang, viewer_uid=viewer_uid)
+        text, markup = _render_list(
+            showcase, cb.uid, page=cb.page, lang=lang, viewer_uid=viewer_uid, owner=cb.owner
+        )
         await _safe_edit(query, text, markup)
         await query.answer()
     except BotError as exc:
@@ -106,7 +112,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 # --------------------------------------------------------------------------- rendering (text)
 def _render_list(
-    showcase: Showcase, uid: str, *, page: int, lang: str, viewer_uid: str | None
+    showcase: Showcase, uid: str, *, page: int, lang: str, viewer_uid: str | None, owner: int = 0
 ) -> tuple[str, InlineKeyboardMarkup]:
     chars = showcase.characters
     if not chars:
@@ -128,7 +134,10 @@ def _render_list(
         label = f"{c.name} (Lv.{c.level} C{c.constellation})"
         row.append(
             InlineKeyboardButton(
-                label, callback_data=callbacks.encode(callbacks.ACTION_CHAR, uid=uid, char_id=c.id, page=page)
+                label,
+                callback_data=callbacks.encode(
+                    callbacks.ACTION_CHAR, uid=uid, char_id=c.id, page=page, owner=owner
+                ),
             )
         )
         if len(row) == COLUMNS:
@@ -144,14 +153,14 @@ def _render_list(
             nav.append(
                 InlineKeyboardButton(
                     t("common.prev", lang),
-                    callback_data=callbacks.encode(callbacks.ACTION_PAGE, uid=uid, page=page - 1),
+                    callback_data=callbacks.encode(callbacks.ACTION_PAGE, uid=uid, page=page - 1, owner=owner),
                 )
             )
         if page < total_pages - 1:
             nav.append(
                 InlineKeyboardButton(
                     t("common.next", lang),
-                    callback_data=callbacks.encode(callbacks.ACTION_PAGE, uid=uid, page=page + 1),
+                    callback_data=callbacks.encode(callbacks.ACTION_PAGE, uid=uid, page=page + 1, owner=owner),
                 )
             )
         if nav:
@@ -160,10 +169,13 @@ def _render_list(
     return text, InlineKeyboardMarkup(rows)
 
 
-def _character_keyboard(uid: str, page: int, lang: str) -> InlineKeyboardMarkup:
+def _character_keyboard(uid: str, page: int, lang: str, owner: int = 0) -> InlineKeyboardMarkup:
     """A single 'Back' button that returns to the list at the page we came from."""
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton(t("common.back", lang), callback_data=callbacks.encode(callbacks.ACTION_BACK, uid=uid, page=page))]]
+        [[InlineKeyboardButton(
+            t("common.back", lang),
+            callback_data=callbacks.encode(callbacks.ACTION_BACK, uid=uid, page=page, owner=owner),
+        )]]
     )
 
 

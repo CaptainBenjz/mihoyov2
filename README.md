@@ -29,6 +29,16 @@ Premium UI / final image layouts are a later phase and can be added without refa
 - **Localization** — `/language` (English, Spanish, Italian, Japanese, Chinese Simplified),
   English default, automatic per-key fallback.
 - **Settings** — `/settings`.
+- **Statistics** — `/stats` (registered users, groups, private chats, Redis status, uptime).
+
+## Persistence
+
+[Redis](https://redis.io/) (Upstash-compatible) is the **primary datastore** and source of
+truth for all persistent data: linked Genshin UIDs, language, per-user settings, registered
+users/groups, cached API responses, and bot statistics. Account links persist across restarts;
+users only re-link on `/genshinlogout` or if the data/DB is cleared. The connection is verified
+at startup, auto-reconnects, and all operations degrade gracefully if Redis is briefly
+unavailable (the bot never crashes).
 
 ## Architecture
 
@@ -37,8 +47,8 @@ bot/
 ├── commands/     # thin Telegram handlers -> delegate to services
 ├── services/     # business logic (no Telegram, no rendering)
 ├── api/          # async wrappers over enka-api / akasha-py
-├── database/     # SQLAlchemy async models + repositories
-├── cache/        # TTL cache (in-memory now, Redis-ready interface)
+├── database/     # Redis client + store (primary persistent datastore)
+├── cache/        # Redis-backed API response cache (JSON, TTL)
 ├── renderer/     # Renderer abstraction + Pillow backend (placeholder layouts)
 ├── models/       # framework-agnostic domain dataclasses
 ├── assets/       # dynamic AssetLoader with placeholder fallback
@@ -60,7 +70,8 @@ pip install -r requirements.txt
 cp .env.example .env                 # then fill in BOT_TOKEN
 ```
 
-Edit `.env` and set `BOT_TOKEN` (from [@BotFather](https://t.me/BotFather)).
+Edit `.env` and set `BOT_TOKEN` (from [@BotFather](https://t.me/BotFather)) and
+`REDIS_URL` (an Upstash Redis connection URL — `redis://` URLs are auto-upgraded to TLS).
 
 ## Run
 

@@ -16,8 +16,10 @@ from telegram.ext import (
     Application,
     ApplicationBuilder,
     CallbackQueryHandler,
+    ChatMemberHandler,
     CommandHandler,
     ContextTypes,
+    TypeHandler,
 )
 
 from bot.app_context import BOT_DATA_KEY, build_app_context
@@ -27,12 +29,14 @@ from bot.commands import (
     banner,
     build_guide,
     characters,
+    ownership,
     settings_lang,
     start_help,
+    stats,
     theater,
+    tracking,
 )
 from bot.config import get_settings
-from bot.database.engine import dispose_engine, init_db
 from bot.translations.i18n import t
 from bot.utils.logging import configure_logging, get_logger
 
@@ -40,15 +44,27 @@ logger = get_logger(__name__)
 
 
 async def _post_init(application: Application) -> None:
-    """Initialize the database and dependency container once the app is ready."""
-    await init_db()
-    application.bot_data[BOT_DATA_KEY] = build_app_context(get_settings())
+    """Build the dependency container and verify Redis before serving traffic."""
+    app_ctx = build_app_context(get_settings())
+    application.bot_data[BOT_DATA_KEY] = app_ctx
+
+    # Verify the primary datastore is reachable before the bot becomes operational.
+    if await app_ctx.redis.verify():
+        logger.info("Redis (primary datastore) is connected")
+    else:
+        logger.error(
+            "Redis connection could not be verified — running in DEGRADED mode. "
+            "Persistence and stats may be unavailable until Redis recovers."
+        )
+
     await _set_bot_commands(application)
     logger.info("Bot initialized and ready")
 
 
 async def _post_shutdown(application: Application) -> None:
-    await dispose_engine()
+    app_ctx = application.bot_data.get(BOT_DATA_KEY)
+    if app_ctx is not None:
+        await app_ctx.redis.close()
 
 
 async def _set_bot_commands(application: Application) -> None:
@@ -73,6 +89,7 @@ async def _set_bot_commands(application: Application) -> None:
         ("build_guide", "Build recommendations"),
         ("settings", "Your settings"),
         ("language", "Change language"),
+        ("stats", "Bot statistics"),
     ]
     try:
         await application.bot.set_my_commands(commands)
@@ -91,9 +108,20 @@ async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def _register_handlers(application: Application) -> None:
+    # --- universal ownership gate (group=-2: runs before tracking and all callback
+    #     handlers; blocks non-owners from operating another user's inline keyboard) ---
+    application.add_handler(CallbackQueryHandler(ownership.enforce_callback_owner), group=-2)
+
+    # --- tracking (group=-1 so it runs first, then command handlers in group 0 also run) ---
+    application.add_handler(TypeHandler(Update, tracking.track), group=-1)
+    application.add_handler(
+        ChatMemberHandler(tracking.on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER)
+    )
+
     # --- simple commands ---
     application.add_handler(CommandHandler("start", start_help.start))
     application.add_handler(CommandHandler("help", start_help.help_command))
+    application.add_handler(CommandHandler("stats", stats.stats))
 
     # --- account ---
     application.add_handler(CommandHandler("genshinlogin", account.genshin_login))
@@ -123,7 +151,7 @@ def _register_handlers(application: Application) -> None:
 
     # --- callback queries (order matters: most specific first) ---
     application.add_handler(
-        CallbackQueryHandler(settings_lang.on_settings_menu_callback, pattern=r"^lang:__menu__$")
+        CallbackQueryHandler(settings_lang.on_settings_menu_callback, pattern=r"^lang:__menu__")
     )
     application.add_handler(CallbackQueryHandler(settings_lang.on_language_callback, pattern=r"^lang:"))
     application.add_handler(
@@ -137,6 +165,9 @@ def build_application() -> Application:
     settings = get_settings()
     if not settings.bot_token:
         logger.error("BOT_TOKEN is not set. Copy .env.example to .env and set BOT_TOKEN.")
+        sys.exit(1)
+    if not settings.redis_url:
+        logger.error("REDIS_URL is not set. Redis is the primary datastore; set it in .env.")
         sys.exit(1)
 
     application = (

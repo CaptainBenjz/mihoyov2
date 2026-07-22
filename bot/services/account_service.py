@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from bot.database.repository import UserRepository
+from bot.database.store import RedisStore
 from bot.utils.errors import AccountNotLinked, InvalidUID
 
 # Genshin UID format (as of 2026): 9 or 10 numeric digits. The server region is encoded
@@ -61,7 +61,7 @@ def validate_uid(raw: str) -> str:
 class AccountService:
     """Links a Telegram user to a Genshin UID (one-time), stored in the database."""
 
-    def __init__(self, users: UserRepository, default_language: str = "en") -> None:
+    def __init__(self, users: RedisStore, default_language: str = "en") -> None:
         self._users = users
         self._default_language = default_language
 

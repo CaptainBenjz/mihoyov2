@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from bot.cache.cache import ResponseCache
 from bot.models.character import Character, CharacterStats
 from bot.models.player import PlayerInfo, Showcase
 from bot.models.ranking import Ranking
@@ -40,18 +39,18 @@ def _showcase():
     )
 
 
-async def test_get_showcase_caches_result():
+async def test_get_showcase_caches_result(cache):
     enka = FakeEnka(_showcase())
-    service = CharacterService(enka, FakeAkasha(), ResponseCache(ttl=60))
+    service = CharacterService(enka, FakeAkasha(), cache, ttl=60)
     await service.get_showcase("901211014")
     await service.get_showcase("901211014")
-    assert enka.calls == 1  # second call served from cache
+    assert enka.calls == 1  # second call served from the Redis cache
 
 
-async def test_ranking_enrichment_best_effort():
+async def test_ranking_enrichment_best_effort(cache):
     ranking = Ranking(rank=5, total_players=1000, top_percent=0.5)
     enka = FakeEnka(_showcase())
-    service = CharacterService(enka, FakeAkasha({"10000046": ranking}), ResponseCache(ttl=60))
+    service = CharacterService(enka, FakeAkasha({"10000046": ranking}), cache, ttl=60)
     showcase = await service.get_showcase("901211014")
     hutao = showcase.get_character("10000046")
     assert hutao.ranking is not None and hutao.ranking.rank == 5
@@ -59,17 +58,27 @@ async def test_ranking_enrichment_best_effort():
     assert showcase.get_character("10000002").ranking is None
 
 
-async def test_get_character_missing_raises():
-    service = CharacterService(FakeEnka(_showcase()), FakeAkasha(), ResponseCache(ttl=60))
+async def test_cached_showcase_roundtrips_via_json(cache):
+    # Second call reconstructs from JSON in Redis; data must survive the round-trip.
+    enka = FakeEnka(_showcase())
+    service = CharacterService(enka, FakeAkasha(), cache, ttl=60)
+    await service.get_showcase("901211014")
+    again = await service.get_showcase("901211014")
+    hutao = again.get_character("10000046")
+    assert hutao.name == "Hu Tao" and hutao.level == 90 and hutao.stats.hp == 15000
+
+
+async def test_get_character_missing_raises(cache):
+    service = CharacterService(FakeEnka(_showcase()), FakeAkasha(), cache, ttl=60)
     with pytest.raises(CharacterNotFound):
         await service.get_character("901211014", "99999999")
 
 
-async def test_ranking_failure_does_not_break_showcase():
+async def test_ranking_failure_does_not_break_showcase(cache):
     class BrokenAkasha:
         async def fetch_rankings(self, uid):
             raise RuntimeError("akasha down")
 
-    service = CharacterService(FakeEnka(_showcase()), BrokenAkasha(), ResponseCache(ttl=60))
+    service = CharacterService(FakeEnka(_showcase()), BrokenAkasha(), cache, ttl=60)
     showcase = await service.get_showcase("901211014")  # must not raise
     assert len(showcase.characters) == 2

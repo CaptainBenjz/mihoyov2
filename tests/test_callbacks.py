@@ -17,8 +17,39 @@ def test_encode_decode_roundtrip():
     assert cb.page == 3
 
 
+def test_encode_decode_owner_roundtrip():
+    data = callbacks.encode(callbacks.ACTION_CHAR, uid="901211014", char_id="10000046", page=3, owner=123456789)
+    cb = callbacks.decode(data)
+    assert cb.owner == 123456789
+
+
+def test_legacy_payload_has_zero_owner():
+    # 4-field (pre-fix) data decodes with owner 0 -> treated as unrestricted.
+    cb = callbacks.decode("char|901211014|10000046|0")
+    assert cb.owner == 0
+
+
+def test_extract_owner_character_format():
+    data = callbacks.encode(callbacks.ACTION_PAGE, uid="901211014", page=2, owner=42)
+    assert callbacks.extract_owner(data) == 42
+
+
+def test_extract_owner_language_format():
+    assert callbacks.extract_owner("lang:es:987654321") == 987654321
+    assert callbacks.extract_owner("lang:__menu__:987654321") == 987654321
+
+
+def test_extract_owner_unrestricted_or_legacy():
+    assert callbacks.extract_owner("char|901211014|10000046|0") == 0  # legacy 4-field
+    assert callbacks.extract_owner("lang:es:0") == 0
+    assert callbacks.extract_owner("") == 0
+    assert callbacks.extract_owner("noop") == 0
+
+
 def test_encode_within_telegram_limit():
-    data = callbacks.encode(callbacks.ACTION_CHAR, uid="901211014", char_id="10000046", page=99)
+    data = callbacks.encode(
+        callbacks.ACTION_CHAR, uid="1901234567", char_id="10000046", page=99, owner=9999999999
+    )
     assert len(data.encode("utf-8")) <= MAX_CALLBACK_BYTES
 
 

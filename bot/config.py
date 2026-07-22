@@ -27,8 +27,9 @@ class Settings(BaseSettings):
     # Telegram
     bot_token: str = ""
 
-    # Database (async SQLAlchemy URL)
-    database_url: str = "sqlite+aiosqlite:///data/bot.db"
+    # Redis — the primary persistent datastore (Upstash-compatible).
+    # Upstash redis:// URLs are auto-upgraded to TLS (rediss://) by the Redis client.
+    redis_url: str = ""
 
     # Localization
     default_language: str = "en"
