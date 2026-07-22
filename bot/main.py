@@ -45,6 +45,11 @@ logger = get_logger(__name__)
 
 async def _post_init(application: Application) -> None:
     """Build the dependency container and verify Redis before serving traffic."""
+    # Ensure the card template + font are present (downloaded once, then cached).
+    from bot.assets.bootstrap import ensure_card_assets
+
+    await ensure_card_assets()
+
     app_ctx = build_app_context(get_settings())
     application.bot_data[BOT_DATA_KEY] = app_ctx
 

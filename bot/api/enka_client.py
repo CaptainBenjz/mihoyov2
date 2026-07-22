@@ -156,6 +156,8 @@ class EnkaClient:
         talents = self._map_talents(_get(rc, "talents", default=[]) or [])
         artifacts = self._map_artifacts(_get(rc, "artifacts", default=[]) or [])
         stats = self._map_stats(_get(rc, "stats", default=None))
+        # The Enka icon object exposes full CDN URLs: gacha (splash), front, circle, side.
+        icon_obj = _get(rc, "icon")
         return Character(
             id=str(_get(rc, "id", "avatar_id", default="")),
             name=str(_get(rc, "name", default="?") or "?"),
@@ -165,8 +167,8 @@ class EnkaClient:
             ascension=int(_num(_get(rc, "ascension", default=0))),
             constellation=int(_num(_get(rc, "constellation", "constellations_unlocked", default=0))),
             friendship=_opt_int(_get(rc, "friendship_level", "friendship")),
-            icon=self._icon_key(_get(rc, "icon", "side_icon")),
-            art=self._icon_key(_get(rc, "art", "splash", "gacha_icon")),
+            icon=self._icon_key(_icon_url(icon_obj, "front", "circle", "side")),
+            art=_icon_url(icon_obj, "gacha", "front", "circle"),  # full splash-art URL
             weapon=weapon,
             talents=talents,
             artifacts=artifacts,
@@ -343,6 +345,17 @@ class EnkaClient:
         if isinstance(candidate, str):
             return candidate.rsplit("/", 1)[-1]
         return None
+
+
+def _icon_url(icon_obj: Any, *attrs: str) -> str | None:
+    """Return the first present URL attribute (e.g. gacha/front/circle) of an Enka Icon."""
+    if icon_obj is None:
+        return None
+    for attr in attrs:
+        val = getattr(icon_obj, attr, None)
+        if isinstance(val, str) and val:
+            return val
+    return None
 
 
 def _opt_int(val: Any) -> int | None:

@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import io
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from bot.assets import bootstrap
 from bot.assets.loader import AssetLoader, get_asset_loader
+from bot.renderer import card_layout
 from bot.renderer.base import Renderer
 from bot.renderer.context import (
     AbyssCardContext,
@@ -20,6 +22,20 @@ from bot.renderer.context import (
     TheaterCardContext,
 )
 from bot.translations.i18n import t
+from bot.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
+# Element FIGHT_PROP keys for the elemental damage bonus row.
+_ELEM_DMG_PROP = {
+    "PYRO": "FIGHT_PROP_FIRE_ADD_HURT",
+    "HYDRO": "FIGHT_PROP_WATER_ADD_HURT",
+    "ELECTRO": "FIGHT_PROP_ELEC_ADD_HURT",
+    "CRYO": "FIGHT_PROP_ICE_ADD_HURT",
+    "ANEMO": "FIGHT_PROP_WIND_ADD_HURT",
+    "GEO": "FIGHT_PROP_ROCK_ADD_HURT",
+    "DENDRO": "FIGHT_PROP_GRASS_ADD_HURT",
+}
 
 _CARD_SIZE = (900, 1200)
 _BG = (30, 31, 41, 255)
@@ -68,6 +84,263 @@ class PillowRenderer(Renderer):
         buf = io.BytesIO()
         img.convert("RGBA").save(buf, format="PNG")
         return buf.getvalue()
+
+    # ==================================================================
+    #  Premium character profile card (fixed template + live data)
+    # ==================================================================
+    def _pfont(self, size: int, weight: int = 400) -> ImageFont.FreeTypeFont:
+        """Load the bundled NotoSansSC at a size/weight (falls back to default)."""
+        key = (size, weight)
+        cache = getattr(self, "_pfont_cache", None)
+        if cache is None:
+            cache = {}
+            self._pfont_cache = cache
+        if key not in cache:
+            try:
+                font = ImageFont.truetype(str(bootstrap.font_path()), size)
+                try:
+                    font.set_variation_by_axes([weight])
+                except Exception:  # noqa: BLE001 - non-variable fallback
+                    pass
+                cache[key] = font
+            except (OSError, ValueError):
+                cache[key] = ImageFont.load_default()
+        return cache[key]
+
+    def _fit_font(self, draw, text, max_width, base_size, weight=400):
+        """Return a font shrunk until ``text`` fits ``max_width`` (auto-resize, no overflow)."""
+        size = base_size
+        while size > 10:
+            font = self._pfont(size, weight)
+            if draw.textlength(text, font=font) <= max_width:
+                return font
+            size -= 2
+        return self._pfont(size, weight)
+
+    @staticmethod
+    def _fmt(value, *, percent=False, decimals=0):
+        if value is None:
+            return "--"
+        if percent:
+            return f"{value:.1f}%"
+        if decimals:
+            return f"{value:,.{decimals}f}"
+        return f"{value:,.0f}"
+
+    def _draw_fit(self, draw, xy, text, *, max_width, size, weight=400, color=(60, 52, 40),
+                  anchor="la"):
+        font = self._fit_font(draw, text, max_width, size, weight)
+        draw.text(xy, text, font=font, fill=color, anchor=anchor)
+
+    def _stars(self, draw, xy, count, *, size=18, color=(214, 168, 74), anchor="la"):
+        draw.text(xy, "★" * max(0, int(count or 0)), font=self._pfont(size, 500), fill=color,
+                  anchor=anchor)
+
+    def _fit_portrait_ellipse(self, base: Image.Image, portrait: Image.Image | None,
+                              box, glow) -> None:
+        """Composite the portrait into the oval frame: element glow backdrop + cover-fit art."""
+        left, top, right, bottom = box
+        w, h = right - left, bottom - top
+
+        # Element-coloured radial glow backdrop so the character sits on its element colour.
+        backdrop = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        bd = ImageDraw.Draw(backdrop)
+        bd.ellipse([0, 0, w - 1, h - 1], fill=(*glow, 235))
+        backdrop = backdrop.filter(ImageFilter.GaussianBlur(6))
+
+        if portrait is not None:
+            # Cover-fit: scale keeping aspect so art covers the box, then centre-crop.
+            pw, ph = portrait.size
+            scale = max(w / pw, h / ph)
+            new = portrait.resize((max(1, int(pw * scale)), max(1, int(ph * scale))))
+            nx = (new.width - w) // 2
+            ny = int((new.height - h) * 0.08)  # bias toward the top (faces/upper body)
+            ny = max(0, min(ny, new.height - h))
+            cropped = new.crop((nx, ny, nx + w, ny + h))
+            backdrop.alpha_composite(cropped.convert("RGBA"))
+
+        # Elliptical mask so nothing overflows the frame.
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).ellipse([0, 0, w - 1, h - 1], fill=255)
+        base.paste(backdrop, (left, top), mask)
+
+    def _elemental_bonus(self, stats, element):
+        """Return the character's elemental DMG bonus as a percentage, or None."""
+        if stats is None:
+            return None
+        extra = getattr(stats, "extra", {}) or {}
+        key = _ELEM_DMG_PROP.get(card_layout.canonical_element(element) or "")
+        candidates = []
+        if key and key in extra:
+            candidates.append(extra[key])
+        # else fall back to the largest *_ADD_HURT present
+        candidates += [v for k, v in extra.items() if k.endswith("_ADD_HURT")]
+        if not candidates:
+            return None
+        return max(candidates) * 100.0
+
+    def render_profile_card(self, ctx: CharacterCardContext) -> bytes:
+        c = ctx.character
+        theme = card_layout.theme_for(c.element if c else None)
+
+        # Base canvas: the downloaded template (never regenerated). Fallback: flat panel.
+        try:
+            base = Image.open(bootstrap.template_path()).convert("RGBA")
+            if base.size != card_layout.CARD_SIZE:
+                base = base.resize(card_layout.CARD_SIZE)
+        except Exception as exc:  # noqa: BLE001 - template missing -> minimal fallback
+            logger.warning("Card template missing (%s); using flat canvas", exc)
+            base = Image.new("RGBA", card_layout.CARD_SIZE, (32, 30, 40, 255))
+
+        # Element background tint across the whole card ("green character -> green card").
+        tint = Image.new("RGBA", card_layout.CARD_SIZE, (*theme["bg"], 60))
+        base.alpha_composite(tint)
+
+        # Portrait (glow backdrop + cover-fit art) into the oval frame.
+        portrait = ctx.portrait if isinstance(ctx.portrait, Image.Image) else None
+        self._fit_portrait_ellipse(base, portrait, card_layout.PORTRAIT_BOX, theme["glow"])
+
+        draw = ImageDraw.Draw(base)
+        if c is None:
+            return self._to_png(base)
+
+        accent = theme["accent"]
+        dark = (52, 44, 34)
+
+        # Mask the template's baked placeholder text (CHARACTER NAME, WEAPON NAME, Main Stat,
+        # Substat 1-4, SET NAME, header stars) by filling with the local panel colour so real
+        # values don't ghost. Panels are uniform cream; sample once (post-tint) and reuse.
+        cream = base.getpixel((1150, 300))[:3]
+        header_bg = base.getpixel((250, 18))[:3]
+        draw.rectangle((110, 24, 362, 70), fill=header_bg)      # CHARACTER NAME
+        draw.rectangle((116, 70, 250, 92), fill=header_bg)      # header rarity stars
+        draw.rectangle((116, 88, 322, 110), fill=header_bg)     # Title / Nickname
+        draw.rectangle((516, 126, 828, 156), fill=cream)        # WEAPON NAME
+        draw.rectangle((628, 510, 780, 536), fill=cream)        # SET NAME
+        for i, top in enumerate(card_layout.ARTIFACT_CARD_TOP):
+            dy = top - card_layout.ARTIFACT_CARD_REF_TOP
+            draw.rectangle((968, 104 + dy, 1082, 134 + dy), fill=cream)   # Main Stat
+            for sy in card_layout.ARTIFACT_SUBSTAT_YS:
+                draw.rectangle((1096, sy - 10 + dy, 1262, sy + 12 + dy), fill=cream)  # Substats
+
+        # -- header --
+        self._draw_fit(draw, card_layout.NAME_POS, (c.name or "--").upper(),
+                       max_width=card_layout.NAME_MAX_WIDTH, size=40, weight=800, color=dark)
+        self._stars(draw, card_layout.RARITY_STARS_POS, c.rarity or 0, size=20)
+        title = ctx.player.nickname if ctx.player and ctx.player.nickname else "--"
+        self._draw_fit(draw, card_layout.TITLE_POS, title, max_width=230, size=18, color=(110, 96, 76))
+
+        # -- top bar: level / constellation / rarity --
+        draw.text(card_layout.LEVEL_VALUE_POS, self._fmt(c.level), font=self._pfont(22, 600),
+                  fill=(240, 232, 214), anchor="mm")
+        draw.text(card_layout.CONSTELLATION_VALUE_POS, f"C{c.constellation}",
+                  font=self._pfont(20, 700), fill=(240, 232, 214), anchor="mm")
+        self._stars(draw, card_layout.RARITY_BAR_STARS_POS, c.rarity or 0, size=18, anchor="mm")
+
+        # -- weapon --
+        if c.weapon:
+            self._draw_fit(draw, card_layout.WEAPON_NAME_POS, c.weapon.name or "--",
+                           max_width=card_layout.WEAPON_NAME_MAX_WIDTH, size=22, weight=700, color=dark)
+            draw.text(card_layout.WEAPON_LEVEL_POS, f"Lv. {c.weapon.level}", font=self._pfont(18),
+                      fill=dark, anchor="lm")
+            draw.text(card_layout.WEAPON_REFINE_POS, f"R{c.weapon.refinement}",
+                      font=self._pfont(18, 700), fill=(240, 232, 214), anchor="mm")
+
+        # -- base stats (values right-aligned per labelled row) --
+        s = c.stats
+        stat_values = {
+            "hp": self._fmt(s.hp), "atk": self._fmt(s.atk), "defense": self._fmt(s.defense),
+            "elemental_mastery": self._fmt(s.elemental_mastery),
+            "crit_rate": self._fmt(s.crit_rate, percent=True),
+            "crit_dmg": self._fmt(s.crit_dmg, percent=True),
+            "energy_recharge": self._fmt(s.energy_recharge, percent=True),
+            "elemental_bonus": self._fmt(self._elemental_bonus(s, c.element), percent=True),
+        }
+        for field, y in card_layout.BASE_STAT_ROWS_Y.items():
+            draw.text((card_layout.BASE_STAT_VALUE_X, y), stat_values.get(field, "--"),
+                      font=self._pfont(18, 600), fill=dark, anchor="rm")
+
+        # -- talents --
+        for pos, tal in zip(card_layout.TALENT_LEVEL_POS, (c.talents or [])[:3]):
+            crown = tal.level >= 10
+            draw.text(pos, str(tal.level), font=self._pfont(18, 700),
+                      fill=(214, 168, 74) if crown else dark, anchor="mm")
+
+        # -- artifacts (place each by slot) --
+        by_slot = {a.slot.lower(): a for a in (c.artifacts or [])}
+        for i, slot in enumerate(("flower", "plume", "sands", "goblet", "circlet")):
+            art = by_slot.get(slot)
+            if art is None:
+                continue
+            dy = card_layout.ARTIFACT_CARD_TOP[i] - card_layout.ARTIFACT_CARD_REF_TOP
+            if art.main_stat:
+                mtext = f"{art.main_stat.name} {art.main_stat.value:g}"
+                self._draw_fit(draw, (card_layout.ARTIFACT_MAIN_STAT_POS[0],
+                                      card_layout.ARTIFACT_MAIN_STAT_POS[1] + dy),
+                               mtext, max_width=110, size=15, weight=600, color=dark)
+            self._stars(draw, (card_layout.ARTIFACT_STARS_POS[0], card_layout.ARTIFACT_STARS_POS[1] + dy),
+                        art.rarity or 5, size=13)
+            for sub, sy in zip(art.sub_stats[:4], card_layout.ARTIFACT_SUBSTAT_YS):
+                stext = f"{sub.name} {sub.value:g}"
+                self._draw_fit(draw, (card_layout.ARTIFACT_SUBSTAT_X, sy + dy), stext,
+                               max_width=135, size=13, color=(90, 78, 62))
+
+        # -- set bonus (dominant set from equipped artifacts) --
+        set_name, set_count = self._dominant_set(c.artifacts or [])
+        if set_name:
+            self._draw_fit(draw, card_layout.SET_NAME_POS, f"{set_name} ({set_count})",
+                           max_width=150, size=16, weight=700, color=dark, anchor="mm")
+
+        # -- bottom summary bar --
+        bottom_vals = [
+            self._fmt(s.crit_rate, percent=True), self._fmt(s.crit_dmg, percent=True),
+            self._fmt(s.energy_recharge, percent=True), self._fmt(s.atk), self._fmt(s.defense),
+            self._fmt(s.elemental_mastery),
+            self._fmt(self._elemental_bonus(s, c.element), percent=True),
+        ]
+        for x, val in zip(card_layout.BOTTOM_BAR_VALUE_X, bottom_vals):
+            draw.text((x, card_layout.BOTTOM_BAR_Y), val, font=self._pfont(15, 600),
+                      fill=(228, 220, 205), anchor="mm")
+
+        # -- Akasha ranking badge (only if data exists) --
+        r = c.ranking
+        if r is not None and r.available:
+            self._draw_ranking_badge(base, draw, r, accent)
+
+        return self._to_png(base)
+
+    @staticmethod
+    def _dominant_set(artifacts):
+        counts: dict[str, int] = {}
+        for a in artifacts:
+            if a.set_name:
+                counts[a.set_name] = counts.get(a.set_name, 0) + 1
+        if not counts:
+            return None, 0
+        name = max(counts, key=counts.get)
+        return name, counts[name]
+
+    def _draw_ranking_badge(self, base, draw, ranking, accent) -> None:
+        box = card_layout.RANKING_BADGE_BOX
+        badge = Image.new("RGBA", (box[2] - box[0], box[3] - box[1]), (0, 0, 0, 0))
+        bd = ImageDraw.Draw(badge)
+        bd.rounded_rectangle([0, 0, badge.width - 1, badge.height - 1], radius=14,
+                             fill=(20, 18, 24, 210), outline=(*accent, 255), width=2)
+        base.alpha_composite(badge, (box[0], box[1]))
+        cy = (box[1] + box[3]) // 2
+        parts = []
+        if ranking.rank is not None:
+            parts.append((f"#{ranking.rank:,}", "RANK"))
+        if ranking.top_percent is not None:
+            parts.append((f"{ranking.top_percent:.1f}%", "TOP"))
+        if ranking.calculation_name:
+            parts.append((ranking.calculation_name, "CATEGORY"))
+        n = max(1, len(parts))
+        seg = (box[2] - box[0]) // n
+        for i, (val, label) in enumerate(parts):
+            cx = box[0] + seg * i + seg // 2
+            draw.text((cx, cy - 10), val, font=self._pfont(22, 800), fill=(*accent, 255), anchor="mm")
+            draw.text((cx, cy + 16), label, font=self._pfont(12, 500), fill=(200, 200, 210), anchor="mm")
 
     # -- cards -------------------------------------------------------------
     def render_character_card(self, ctx: CharacterCardContext) -> bytes:

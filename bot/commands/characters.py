@@ -12,18 +12,24 @@ pressed button plus the cached showcase.
 
 from __future__ import annotations
 
+import html
+import io
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from bot.app_context import AppContext
 from bot.commands.common import get_app, guard, resolve_language, user_id_of
 from bot.models.character import Character
-from bot.models.player import Showcase
+from bot.models.player import PlayerInfo, Showcase
+from bot.renderer.context import CharacterCardContext
 from bot.translations.i18n import t
 from bot.utils import callbacks
 from bot.utils.errors import BotError
 from bot.utils.logging import get_logger
+from bot.utils.text import strip_custom_emoji
 
 logger = get_logger(__name__)
 
@@ -90,13 +96,24 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if character is None:
                 await query.answer(t("error.character_not_found", lang), show_alert=True)
                 return
-            text = _render_character(character, lang)
-            markup = _character_keyboard(cb.uid, cb.page, lang, owner=cb.owner)
-            await _safe_edit(query, text, markup)
             await query.answer()
+            await _send_profile_card(app, query, character, showcase.player, cb, lang)
             return
 
-        # LIST / PAGE / BACK all resolve to showing the list at a page.
+        if cb.action == callbacks.ACTION_BACK:
+            # The profile card is a photo message; Telegram can't edit it back into the text
+            # list, so we delete the card — the original list message is untouched behind it.
+            msg = query.message
+            if msg is not None and getattr(msg, "photo", None):
+                try:
+                    await msg.delete()
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("card delete ignored: %s", exc)
+                await query.answer()
+                return
+            # Fallback (legacy text view): re-render the list in place.
+
+        # LIST / PAGE (and legacy BACK) resolve to showing the list at a page.
         showcase = await app.character_service.get_showcase(cb.uid, lang)
         text, markup = _render_list(
             showcase, cb.uid, page=cb.page, lang=lang, viewer_uid=viewer_uid, owner=cb.owner
@@ -108,6 +125,61 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except Exception:  # noqa: BLE001 - never crash on a button press
         logger.exception("Callback failed")
         await query.answer(t("error.generic", lang), show_alert=True)
+
+
+# --------------------------------------------------------------------------- profile card
+async def _send_profile_card(
+    app: AppContext, query, character: Character, player: PlayerInfo | None, cb, lang: str
+) -> None:
+    """Render the character profile card and send it as a new photo with caption + Back."""
+    target = query.message
+    if target is None:
+        return
+    portrait = await app.artwork_service.get_portrait(character)
+    png = app.renderer.render_profile_card(
+        CharacterCardContext(language=lang, character=character, player=player, portrait=portrait)
+    )
+    caption = _build_caption(character, player)
+    back_kb = InlineKeyboardMarkup(
+        [[InlineKeyboardButton(
+            t("common.back", lang),
+            callback_data=callbacks.encode(callbacks.ACTION_BACK, uid=cb.uid, page=cb.page, owner=cb.owner),
+        )]]
+    )
+
+    async def _send(cap: str):
+        return await target.reply_photo(
+            photo=io.BytesIO(png), caption=cap, parse_mode=ParseMode.HTML, reply_markup=back_kb
+        )
+
+    try:
+        await _send(caption)
+    except BadRequest as exc:
+        fallback = strip_custom_emoji(caption)
+        if fallback != caption:
+            logger.info("Custom emoji not sent in card caption (%s); using fallback", exc)
+            await _send(fallback)
+        else:
+            raise
+
+
+def _build_caption(character: Character, player: PlayerInfo | None) -> str:
+    """Build the exact profile-card caption; missing values become '--'."""
+    r = character.ranking
+    rank = f"{r.rank:,}" if (r and r.rank is not None) else "--"
+    top = f"{r.top_percent:.1f}" if (r and r.top_percent is not None) else "--"
+    category = r.calculation_name if (r and r.calculation_name) else "--"
+    name = html.escape(character.name or "--")
+    nickname = html.escape(player.nickname if (player and player.nickname) else "--")
+    category = html.escape(category)
+    return (
+        f'<tg-emoji emoji-id="4911241630633165627">⚔️</tg-emoji> {name}\n\n'
+        f'<tg-emoji emoji-id="5255835635704408236">👤</tg-emoji> {nickname}\n\n'
+        f"Akasha.cv Overview\n\n"
+        f'<tg-emoji emoji-id="5413566144986503832">🏆</tg-emoji> Rank: #{rank}\n\n'
+        f'<tg-emoji emoji-id="4958489311726011319">✨</tg-emoji> Top {top}%\n\n'
+        f'<tg-emoji emoji-id="5818800359518247381">🏅</tg-emoji> Category: {category}'
+    )
 
 
 # --------------------------------------------------------------------------- rendering (text)

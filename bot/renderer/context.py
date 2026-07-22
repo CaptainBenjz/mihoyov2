@@ -34,6 +34,8 @@ class CharacterCardContext(RenderContext):
 
     character: Character | None = None
     player: PlayerInfo | None = None
+    # Pre-fetched character artwork (PIL.Image) or None to use the empty portrait frame.
+    portrait: object | None = None
 
 
 @dataclass(slots=True)

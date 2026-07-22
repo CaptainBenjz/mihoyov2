@@ -20,6 +20,7 @@ from bot.services.abyss_service import AbyssService
 from bot.services.account_service import AccountService
 from bot.services.banner_service import BannerService
 from bot.services.build_service import BuildService
+from bot.services.artwork_service import ArtworkService
 from bot.services.character_service import CharacterService
 from bot.services.stats_service import StatsService
 from bot.services.theater_service import TheaterService
@@ -40,6 +41,7 @@ class AppContext:
     banner_service: BannerService
     build_service: BuildService
     stats_service: StatsService
+    artwork_service: ArtworkService
     renderer: Renderer
     started_at: float
 
@@ -68,6 +70,7 @@ def build_app_context(settings: Settings | None = None) -> AppContext:
     banner_service = BannerService()
     build_service = BuildService()
     stats_service = StatsService(store, redis, started_at)
+    artwork_service = ArtworkService()
 
     return AppContext(
         settings=settings,
@@ -80,6 +83,7 @@ def build_app_context(settings: Settings | None = None) -> AppContext:
         banner_service=banner_service,
         build_service=build_service,
         stats_service=stats_service,
+        artwork_service=artwork_service,
         renderer=get_renderer(),
         started_at=started_at,
     )

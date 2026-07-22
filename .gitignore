@@ -9,6 +9,10 @@ data/*.sqlite3
 # enka library runtime asset cache (downloaded at runtime)
 .enka_py/
 
+# Runtime-downloaded rendering assets (fonts + character artwork cache)
+assets/fonts/
+assets/characters/*.png
+
 # Python
 __pycache__/
 *.py[cod]

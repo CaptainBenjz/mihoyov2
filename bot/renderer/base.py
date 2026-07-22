@@ -24,6 +24,10 @@ class Renderer(ABC):
         ...
 
     @abstractmethod
+    def render_profile_card(self, ctx: CharacterCardContext) -> bytes:
+        ...
+
+    @abstractmethod
     def render_abyss_card(self, ctx: AbyssCardContext) -> bytes:
         ...
 
