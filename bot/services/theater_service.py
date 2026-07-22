@@ -1,15 +1,16 @@
 """Imaginarium Theater business logic.
 
-Like Abyss, detailed Theater records require an authenticated HoYoLAB session. This
-foundation exposes the model and a service seam; it returns :class:`DataUnavailable`
-until a data source is wired in, without ever crashing.
+Enka's public profile exposes a player's Imaginarium Theater summary (the act reached and
+stars earned) *when the player has enabled showing it in-game*. This service reads those
+fields from the showcase's player info. If the player hasn't shown any Theater progress the
+result is simply empty (``available`` is False) — the command layer reports that clearly
+rather than treating it as an error.
 """
 
 from __future__ import annotations
 
 from bot.models.theater import TheaterData
 from bot.services.character_service import CharacterService
-from bot.utils.errors import DataUnavailable
 
 
 class TheaterService:
@@ -17,9 +18,10 @@ class TheaterService:
         self._characters = characters
 
     async def get_theater(self, uid: str, language: str = "en") -> TheaterData:
-        # Ensure the profile is reachable/public before reporting availability.
-        await self._characters.get_showcase(uid, language)
-        data = TheaterData(uid=uid)
-        if not data.available:
-            raise DataUnavailable(f"No theater data for {uid}")
-        return data
+        showcase = await self._characters.get_showcase(uid, language)
+        player = showcase.player
+        return TheaterData(
+            uid=uid,
+            act=player.theater_act,
+            stars=player.theater_stars,
+        )

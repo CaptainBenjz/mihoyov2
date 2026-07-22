@@ -64,7 +64,8 @@
   "abyss.unavailable": "Non ho ancora i tuoi dati dell'Abisso Spiraleggiante, Viaggiatore.",
 
   "theater.title": "🎭 <b>Teatro Immaginario</b>",
-  "theater.unavailable": "Non ho ancora i tuoi dati del Teatro Immaginario, Viaggiatore.",
+  "theater.unavailable": "Non ho ancora i tuoi dati del Teatro Immaginario, Viaggiatore. Assicurati che sia mostrato sul tuo profilo di gioco.",
+  "theater.act": "Atto raggiunto: {act}",
 
   "banner.title": "🎟️ <b>Banner</b>",
   "banner.current": "Attuale: {name}",

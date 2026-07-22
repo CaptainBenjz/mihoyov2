@@ -64,7 +64,8 @@
   "abyss.unavailable": "まだあなたの深境螺旋のデータがありません、旅人さん。",
 
   "theater.title": "🎭 <b>幻想シアター</b>",
-  "theater.unavailable": "まだあなたの幻想シアターのデータがありません、旅人さん。",
+  "theater.unavailable": "まだあなたの幻想シアターのデータがありません、旅人さん。ゲーム内プロフィールで表示設定になっているかご確認ください。",
+  "theater.act": "到達した幕: {act}",
 
   "banner.title": "🎟️ <b>祈願</b>",
   "banner.current": "開催中: {name}",

@@ -162,6 +162,8 @@ class PillowRenderer(Renderer):
         yy = y + 20
         if th.difficulty:
             yy = self._text(draw, (60, yy), th.difficulty, size=28)
+        if th.act is not None:
+            yy = self._text(draw, (60, yy), t("theater.act", lang, act=th.act), size=28)
         if th.stars is not None:
             yy = self._text(draw, (60, yy), t("abyss.stars", lang, stars=th.stars), size=28)
         return self._to_png(img)

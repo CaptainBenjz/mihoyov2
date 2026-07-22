@@ -147,6 +147,8 @@ class EnkaClient:
             achievements=_opt_int(_get(rp, "achievements", "achievement_count")),
             abyss_floor=_opt_int(_get(rp, "abyss_floor", "spiral_abyss_floor")),
             abyss_chamber=_opt_int(_get(rp, "abyss_level", "spiral_abyss_level", "abyss_chamber")),
+            theater_act=_opt_int(_get(rp, "theater_act")),
+            theater_stars=_opt_int(_get(rp, "theater_stars")),
         )
 
     def _map_character(self, rc: Any) -> Character:

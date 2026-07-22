@@ -64,7 +64,8 @@
   "abyss.unavailable": "I don't have your Spiral Abyss data yet, Traveler.",
 
   "theater.title": "🎭 <b>Imaginarium Theater</b>",
-  "theater.unavailable": "I don't have your Imaginarium Theater data yet, Traveler.",
+  "theater.unavailable": "I don't have your Imaginarium Theater data yet, Traveler. Make sure it's shown on your in-game profile.",
+  "theater.act": "Act reached: {act}",
 
   "banner.title": "🎟️ <b>Banners</b>",
   "banner.current": "Current: {name}",

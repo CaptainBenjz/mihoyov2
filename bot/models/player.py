@@ -21,6 +21,8 @@ class PlayerInfo:
     achievements: int | None = None
     abyss_floor: int | None = None
     abyss_chamber: int | None = None
+    theater_act: int | None = None
+    theater_stars: int | None = None
 
 
 @dataclass(slots=True)

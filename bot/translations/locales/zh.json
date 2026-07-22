@@ -64,7 +64,8 @@
   "abyss.unavailable": "我还没有你的深境螺旋数据，旅行者。",
 
   "theater.title": "🎭 <b>幻想真境剧诗</b>",
-  "theater.unavailable": "我还没有你的幻想真境剧诗数据，旅行者。",
+  "theater.unavailable": "我还没有你的幻想真境剧诗数据，旅行者。请确认已在游戏内资料中展示。",
+  "theater.act": "到达幕数: {act}",
 
   "banner.title": "🎟️ <b>卡池</b>",
   "banner.current": "当前: {name}",

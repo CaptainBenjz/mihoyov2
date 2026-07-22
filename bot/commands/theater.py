@@ -26,9 +26,12 @@ async def _load(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @guard
 async def theater(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _, lang, _showcase, data = await _load(update, context)
+    if not data.available:
+        await update.message.reply_text(t("theater.unavailable", lang), parse_mode=ParseMode.HTML)
+        return
     lines = [t("theater.title", lang)]
-    if data.difficulty:
-        lines.append(data.difficulty)
+    if data.act is not None:
+        lines.append(t("theater.act", lang, act=data.act))
     if data.stars is not None:
         lines.append(t("abyss.stars", lang, stars=data.stars))
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
