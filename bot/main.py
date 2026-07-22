@@ -37,39 +37,127 @@ from bot.commands import (
     tracking,
 )
 from bot.config import get_settings
+from bot.database.redis_client import mask_url, validate_redis_url
 from bot.translations.i18n import t
 from bot.utils.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
+# Diagnostic Telegram user id used for the startup store round-trip. Not a real user;
+# its keys are written and immediately deleted so live data is never touched.
+_DIAG_TID = 0
 
-async def _post_init(application: Application) -> None:
-    """Build the dependency container and verify Redis before serving traffic."""
-    # Ensure the card template + font are present (downloaded once, then cached).
-    from bot.assets.bootstrap import ensure_card_assets
 
-    await ensure_card_assets()
+async def _bootstrap_assets() -> None:
+    """Download the card template + font. Never lets an asset failure crash startup."""
+    try:
+        from bot.assets.bootstrap import ensure_card_assets
 
-    app_ctx = build_app_context(get_settings())
-    application.bot_data[BOT_DATA_KEY] = app_ctx
-
-    # Verify the primary datastore is reachable before the bot becomes operational.
-    if await app_ctx.redis.verify():
-        logger.info("Redis (primary datastore) is connected")
-    else:
-        logger.error(
-            "Redis connection could not be verified — running in DEGRADED mode. "
-            "Persistence and stats may be unavailable until Redis recovers."
+        await ensure_card_assets()
+        logger.info("Startup step 1/5: asset bootstrap complete")
+    except Exception as exc:  # noqa: BLE001 - assets are best-effort (renderer has fallbacks)
+        logger.warning(
+            "Startup step 1/5: asset bootstrap failed (%s: %s) — continuing with "
+            "placeholders/default font", type(exc).__name__, exc, exc_info=True,
         )
 
+
+async def _store_round_trip(application: Application) -> None:
+    """Store + read back a Telegram user id, linked UID, language and setting, then clean up.
+
+    Runs immediately after connecting so a broken persistence path is visible in the
+    startup logs rather than only when a real user hits a command. Best-effort; never raises.
+    """
+    app_ctx = application.bot_data[BOT_DATA_KEY]
+    store = app_ctx.users
+    try:
+        await store.get_or_create(_DIAG_TID, app_ctx.settings.default_language)
+        await store.link_uid(_DIAG_TID, "800000000", app_ctx.settings.default_language)
+        await store.set_language(_DIAG_TID, "en", app_ctx.settings.default_language)
+        await store.set_setting(_DIAG_TID, "diag", "1")
+
+        uid = await store.get_uid(_DIAG_TID)
+        lang = await store.get_language(_DIAG_TID, app_ctx.settings.default_language)
+        setting = await store.get_setting(_DIAG_TID, "diag")
+        ok = uid == "800000000" and lang == "en" and setting == "1"
+        logger.info(
+            "Startup step 4/5: store round-trip | uid=%r language=%r setting=%r -> %s",
+            uid, lang, setting, "PASS" if ok else "FAIL",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Startup step 4/5: store round-trip FAILED (%s: %s)",
+            type(exc).__name__, exc, exc_info=True,
+        )
+    finally:
+        # Clean up the diagnostic keys regardless of outcome.
+        try:
+            client = app_ctx.redis.client
+            await client.delete(f"user:{_DIAG_TID}", f"user:{_DIAG_TID}:settings")
+            await client.srem("users", _DIAG_TID)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Diagnostic key cleanup skipped: %s", exc)
+
+
+async def _post_init(application: Application) -> None:
+    """Build the dependency container and verify Redis before serving traffic.
+
+    Hardened so that *no* initialization failure can prevent the bot from reaching
+    ``run_polling``: every step is logged, every exception is captured with a traceback,
+    and the app context is always installed so command handlers can run (degraded, if
+    Redis is down) instead of KeyError-ing.
+    """
+    logger.info("=== Bot initialization starting ===")
+
+    # Step 1: assets (best-effort; guarded internally).
+    await _bootstrap_assets()
+
+    # Step 2: dependency container (Redis pool, services, API clients, renderer).
+    try:
+        app_ctx = build_app_context(get_settings())
+        application.bot_data[BOT_DATA_KEY] = app_ctx
+        logger.info("Startup step 2/5: dependency container built (services wired)")
+    except Exception:
+        logger.critical(
+            "Startup step 2/5: FAILED to build dependency container. The bot cannot "
+            "serve commands. Most likely REDIS_URL is malformed — see the error below.",
+            exc_info=True,
+        )
+        # Re-raise: without a context there is nothing to serve, and PTB will surface
+        # this clearly instead of the bot silently accepting updates it can't handle.
+        raise
+
+    # Step 3: verify Redis + full CRUD self-test (connection/read/write/delete/ping).
+    if await app_ctx.redis.verify():
+        logger.info("Startup step 3/5: Redis (primary datastore) is connected")
+        await app_ctx.redis.self_test()
+    else:
+        logger.error(
+            "Startup step 3/5: Redis connection could not be verified — running in "
+            "DEGRADED mode. Persistence and stats are unavailable until Redis recovers; "
+            "command handlers still run."
+        )
+
+    # Step 4: persistence round-trip (user id / uid / language / settings).
+    await _store_round_trip(application)
+
+    # Step 5: publish the command menu (best-effort).
     await _set_bot_commands(application)
-    logger.info("Bot initialized and ready")
+    logger.info("Startup step 5/5: command menu published")
+
+    # Last line before PTB's updater begins fetching updates.
+    logger.info("Bot started successfully — beginning long-polling for updates")
 
 
 async def _post_shutdown(application: Application) -> None:
+    logger.info("Shutdown: closing Redis connection pool")
     app_ctx = application.bot_data.get(BOT_DATA_KEY)
     if app_ctx is not None:
-        await app_ctx.redis.close()
+        try:
+            await app_ctx.redis.close()
+            logger.info("Shutdown: Redis pool closed")
+        except Exception:  # noqa: BLE001
+            logger.warning("Shutdown: error closing Redis pool", exc_info=True)
 
 
 async def _set_bot_commands(application: Application) -> None:
@@ -166,14 +254,32 @@ def _register_handlers(application: Application) -> None:
     application.add_error_handler(_on_error)
 
 
-def build_application() -> Application:
-    settings = get_settings()
+def _validate_environment(settings) -> None:
+    """Fail fast with a clear, actionable message if required config is missing/invalid."""
     if not settings.bot_token:
-        logger.error("BOT_TOKEN is not set. Copy .env.example to .env and set BOT_TOKEN.")
+        logger.critical(
+            "BOT_TOKEN is not set. On the deployment platform set the BOT_TOKEN env var "
+            "(from @BotFather); locally, copy .env.example to .env and set it."
+        )
         sys.exit(1)
     if not settings.redis_url:
-        logger.error("REDIS_URL is not set. Redis is the primary datastore; set it in .env.")
+        logger.critical(
+            "REDIS_URL is not set. Redis is the primary datastore; set the REDIS_URL env "
+            "var to your Upstash 'Redis' connection URL "
+            "(rediss://default:<password>@<host>:6379)."
+        )
         sys.exit(1)
+
+    ok, message = validate_redis_url(settings.redis_url)
+    if not ok:
+        logger.critical("REDIS_URL is invalid: %s", message)
+        sys.exit(1)
+    logger.info("Environment validated: BOT_TOKEN present, REDIS_URL=%s", mask_url(settings.redis_url))
+
+
+def build_application() -> Application:
+    settings = get_settings()
+    _validate_environment(settings)
 
     application = (
         ApplicationBuilder()
@@ -183,6 +289,7 @@ def build_application() -> Application:
         .build()
     )
     _register_handlers(application)
+    logger.info("Registered command/callback handlers")
     return application
 
 
@@ -190,8 +297,20 @@ def main() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
     logger.info("Starting Genshin Impact Telegram bot")
-    application = build_application()
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        application = build_application()
+        # run_polling drives initialize -> _post_init -> updater start_polling (blocking).
+        # "Bot started successfully" is logged at the tail of _post_init, immediately
+        # before the updater begins fetching updates.
+        logger.info("Handing control to run_polling()")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except SystemExit:
+        raise
+    except Exception:
+        logger.critical("Fatal error during startup/polling", exc_info=True)
+        raise
+    finally:
+        logger.info("Bot process shutting down")
 
 
 if __name__ == "__main__":

@@ -72,6 +72,30 @@ KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
 -------------------------------------------------------------------------------
 FIX HISTORY
 -------------------------------------------------------------------------------
+2026-07-22  Session 3 (deployment debug):
+  ROOT CAUSE of "deploys but no commands / crashes after switching Upstash DB":
+  redis.from_url() raises ValueError (NOT RedisError) for a non-redis scheme — e.g. the
+  Upstash REST URL https://<db>.upstash.io. It was called eagerly in build_app_context
+  (RedisStore(redis.client)) inside _post_init; the uncaught ValueError propagated out of
+  run_polling BEFORE the updater started -> bot never polled. Old DB worked because its
+  URL was a proper rediss:// Redis-protocol URL.
+  FIXES (architecture preserved):
+   - redis_client.py: normalize_url (trim/quote-strip, bare host, redis->rediss upgrade);
+     new validate_redis_url (rejects REST/https + bad schemes with actionable msg);
+     mask_url; verify() catches any exception + traceback; new self_test() PING/WRITE/
+     READ/DELETE with per-op logging.
+   - main.py: _validate_environment fails fast w/ clear CRITICAL on missing/invalid
+     BOT_TOKEN or REDIS_URL; _post_init rewritten resilient + 5 logged steps (assets,
+     container, verify+self_test, store round-trip of user id/uid/language/settings w/
+     cleanup, command menu), tracebacks everywhere, always installs AppContext, logs
+     "Bot started successfully" as last line before polling; main() wraps run_polling
+     with fatal/shutdown logging; handlers still registered before polling.
+   - Dockerfile: PYTHONDONTWRITEBYTECODE, mkdir assets/fonts+characters, documented
+     that bot/ carries translations+resources and env vars come from the platform.
+   - tests/test_redis_client.py (12 tests). Full suite 111 passed.
+  ACTION REQUIRED ON RAILWAY: set REDIS_URL to the Upstash *Redis* URL
+  (rediss://default:<pw>@<host>:6379), NOT the REST URL. See DEPLOYMENT_FIX_REPORT.md.
+
 2026-07-22  Session 2 (debug/QA agent):
   [M1] loader.resolve() now strips a trailing segment only when it's a known image
        extension, so dotted stems (e.g. char_1.2) resolve. +1 regression test.
