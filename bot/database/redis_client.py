@@ -117,23 +117,37 @@ def validate_redis_url(url: str) -> tuple[bool, str]:
 class RedisClient:
     """Owns the process-wide async Redis connection pool."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        connect_timeout: float = 4.0,
+        socket_timeout: float = 4.0,
+        retries: int = 1,
+    ) -> None:
         self._url = normalize_url(url)
         self._redis: redis.Redis | None = None
+        self._connect_timeout = connect_timeout
+        self._socket_timeout = socket_timeout
+        self._retries = retries
         logger.info("Redis client configured for %s", mask_url(self._url))
 
     @property
     def client(self) -> redis.Redis:
-        """Return the shared client, creating the pool on first access."""
+        """Return the shared client, creating the pool on first access.
+
+        Timeouts are deliberately short so an unreachable Redis fails fast (a couple of
+        seconds) rather than hanging the command for tens of seconds.
+        """
         if self._redis is None:
             self._redis = redis.from_url(
                 self._url,
                 decode_responses=True,
-                socket_connect_timeout=10,
-                socket_timeout=10,
+                socket_connect_timeout=self._connect_timeout,
+                socket_timeout=self._socket_timeout,
                 socket_keepalive=True,
                 health_check_interval=30,
-                retry=Retry(ExponentialBackoff(cap=10, base=0.1), retries=3),
+                retry=Retry(ExponentialBackoff(cap=1, base=0.1), retries=self._retries),
                 retry_on_error=[RedisConnectionError, RedisTimeoutError],
             )
         return self._redis

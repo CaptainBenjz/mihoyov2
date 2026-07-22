@@ -2,6 +2,44 @@
 
 from __future__ import annotations
 
+import pytest
+from redis.exceptions import RedisError
+
+from bot.database.store import RedisStore
+from bot.utils.errors import DatastoreUnavailable
+
+
+class _BoomPipe:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    def hsetnx(self, *a, **k):
+        return self
+
+    def hset(self, *a, **k):
+        return self
+
+    def sadd(self, *a, **k):
+        return self
+
+    async def execute(self):
+        raise RedisError("connection refused")
+
+
+class _BoomRedis:
+    def pipeline(self, transaction: bool = True):
+        return _BoomPipe()
+
+
+async def test_link_uid_raises_clear_error_when_redis_down():
+    """A failed write surfaces DatastoreUnavailable (clear message), not a bare RedisError."""
+    store = RedisStore(_BoomRedis())
+    with pytest.raises(DatastoreUnavailable):
+        await store.link_uid(1, "901211014")
+
 
 async def test_get_or_create_registers_user(store):
     await store.get_or_create(1, "en")

@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     # Upstash redis:// URLs are auto-upgraded to TLS (rediss://) by the Redis client.
     redis_url: str = ""
 
+    # Redis fast-fail tuning. Kept low so that when Redis is unreachable a command fails
+    # in a couple of seconds (with a clear message) instead of hanging on long timeouts.
+    # Upstash round-trips are well under a second, so these are comfortably safe.
+    redis_connect_timeout: float = 4.0
+    redis_socket_timeout: float = 4.0
+    redis_retries: int = 1
+
     # Localization
     default_language: str = "en"
 

@@ -105,5 +105,6 @@
   "error.ranking_unavailable": "Akasha ranking data isn't available at the moment.",
   "error.api_unavailable": "🌐 The data service is resting for a moment. Please try again shortly.",
   "error.rate_limited": "🐌 We're going a touch too fast — give it a moment and try again.",
-  "error.network": "🌐 I had trouble reaching the data service. Let's try again shortly."
+  "error.network": "🌐 I had trouble reaching the data service. Let's try again shortly.",
+  "error.datastore_unavailable": "💾 I couldn't save that right now — my database is unreachable. Please try again in a moment."
 }

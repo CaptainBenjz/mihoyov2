@@ -61,7 +61,12 @@ def build_app_context(settings: Settings | None = None) -> AppContext:
     """Construct the full dependency graph."""
     settings = settings or get_settings()
 
-    redis = RedisClient(settings.redis_url)
+    redis = RedisClient(
+        settings.redis_url,
+        connect_timeout=settings.redis_connect_timeout,
+        socket_timeout=settings.redis_socket_timeout,
+        retries=settings.redis_retries,
+    )
     store = RedisStore(redis.client)
     showcase_cache = RedisCache(redis.client, ttl=settings.enka_cache_ttl, prefix="cache")
 

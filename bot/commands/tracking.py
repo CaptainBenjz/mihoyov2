@@ -8,6 +8,8 @@ so they can't interfere with normal command handling.
 
 from __future__ import annotations
 
+from typing import Awaitable
+
 from telegram import Update
 from telegram.constants import ChatMemberStatus, ChatType
 from telegram.ext import ContextTypes
@@ -22,17 +24,28 @@ _PRESENT = (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberS
 _ABSENT = (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED)
 
 
+def _fire(context: ContextTypes.DEFAULT_TYPE, coro: Awaitable[None]) -> None:
+    """Run a best-effort coroutine in the background so it never delays the command.
+
+    Tracking writes to Redis; if Redis is slow/unreachable we must not make the user wait
+    for it. PTB's ``application.create_task`` schedules and supervises the task (swallowing
+    any error) without blocking this handler.
+    """
+    context.application.create_task(coro)
+
+
 async def track(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Register the interacting user and (if applicable) the group. Never raises."""
+    """Register the interacting user and (if applicable) the group. Never blocks or raises."""
     try:
         app = get_app(context)
         user = update.effective_user
         chat = update.effective_chat
         chat_type = chat.type if chat else None
+        # Fire-and-forget: registration is best-effort and off the command's critical path.
         if user is not None and not user.is_bot:
-            await app.users.register_interaction(user.id, chat_type)
+            _fire(context, app.users.register_interaction(user.id, chat_type))
         if chat is not None and chat.type in _GROUP_TYPES:
-            await app.users.register_group(chat.id)
+            _fire(context, app.users.register_group(chat.id))
     except Exception as exc:  # noqa: BLE001 - tracking must never disrupt handling
         logger.debug("track failed: %s", exc)
 

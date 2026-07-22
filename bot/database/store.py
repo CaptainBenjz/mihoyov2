@@ -29,6 +29,7 @@ from typing import Any
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from bot.utils.errors import DatastoreUnavailable
 from bot.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -89,7 +90,8 @@ class RedisStore:
                 await pipe.execute()
         except RedisError as exc:
             logger.error("link_uid failed for %s: %s", telegram_user_id, exc)
-            raise
+            # Surface a clear, localized "try again" message instead of the generic error.
+            raise DatastoreUnavailable(str(exc)) from exc
 
     async def unlink_uid(self, telegram_user_id: int) -> bool:
         """Remove a user's linked UID. Returns True if one was present."""

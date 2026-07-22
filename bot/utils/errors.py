@@ -86,3 +86,13 @@ class NetworkError(BotError):
     """A network error or timeout occurred talking to an upstream API."""
 
     i18n_key = "error.network"
+
+
+class DatastoreUnavailable(BotError):
+    """The primary datastore (Redis) could not be reached for a write.
+
+    Raised by write operations that cannot silently degrade (e.g. linking a UID): the user
+    is told to retry, rather than being shown the mysterious generic error.
+    """
+
+    i18n_key = "error.datastore_unavailable"

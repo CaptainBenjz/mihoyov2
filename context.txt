@@ -72,6 +72,23 @@ KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
 -------------------------------------------------------------------------------
 FIX HISTORY
 -------------------------------------------------------------------------------
+2026-07-22  Session 6 (login error + slowness):
+  Symptom: /genshinlogin replied error.generic ("Oh dear...") and all responses very slow.
+  Root cause: Redis unreachable/degraded. link_uid re-raised bare RedisError -> guard showed
+  generic error; and socket timeouts (10s) x 3 retries meant each failed Redis op hung ~30s
+  (login did get_uid + link_uid ≈ 60s), on top of per-update tracking Redis calls blocking
+  every command. THE UNDERLYING REDIS CONNECTION MUST BE FIXED ON RAILWAY (see startup logs:
+  "Redis connection could not be verified" / self-test). Code fixes made it fast + clear:
+   - errors.py: new DatastoreUnavailable(BotError, i18n_key error.datastore_unavailable);
+     store.link_uid now raises it (clear "couldn't save, try again" msg, not generic).
+     en.json: added error.datastore_unavailable (per-key fallback covers other locales).
+   - Fast-fail Redis: config redis_connect_timeout/redis_socket_timeout=4.0, redis_retries=1
+     (env-overridable); redis_client uses them + backoff cap 1; app_context passes them.
+     Dead Redis now fails in ~4s/op instead of ~30s.
+   - tracking.track: register_interaction/register_group now fire-and-forget via
+     application.create_task -> never block the command reply on Redis.
+  Tests: +test_link_uid_raises_clear_error_when_redis_down. Full suite 119 passed.
+
 2026-07-22  Session 5 (rendering-engine foundation):
   Added enkarender/ — an independent, self-contained rendering-engine package (its own
   README, ARCHITECTURE.md, pyproject, tests, offline demo). Architecturally inspired by
