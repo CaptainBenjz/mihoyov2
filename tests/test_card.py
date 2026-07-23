@@ -90,6 +90,34 @@ def test_render_with_constellation_lock_states():
     assert png.startswith(PNG_MAGIC)
 
 
+def test_render_full_card_with_portrait_and_icons_is_correct_size():
+    """Exercises the placeholder-erase + icon paths and checks the fixed 1280x720 output."""
+    import io
+
+    from PIL import Image
+
+    portrait = Image.new("RGBA", (400, 700), (0, 0, 0, 0))
+    icon = Image.new("RGBA", (96, 96), (200, 80, 60, 255))
+    ch = _character(
+        constellation=2,
+        weapon=Weapon(name="Staff of Homa", level=90, refinement=1, rarity=5,
+                      weapon_type="Polearm", icon="w"),
+        talents=[Talent("Normal", 9, icon="t1"), Talent("Skill", 9, icon="t2"),
+                 Talent("Burst", 10, icon="t3")],
+        ranking=None,
+    )
+    for a in ch.artifacts:
+        a.icon = "art"
+    icons = {u: icon for u in ("w", "t1", "t2", "t3", "art")}
+    png = PillowRenderer().render_profile_card(
+        CharacterCardContext(language="en", character=ch,
+                             player=PlayerInfo(uid="1", nickname="Traveler"),
+                             portrait=portrait, icons=icons)
+    )
+    assert png.startswith(PNG_MAGIC)
+    assert Image.open(io.BytesIO(png)).size == card_layout.CARD_SIZE
+
+
 def test_weapon_type_and_url_helpers():
     from bot.api.enka_client import _as_url, _weapon_type
     assert _weapon_type("WEAPON_SWORD_ONE_HAND") == "Sword"

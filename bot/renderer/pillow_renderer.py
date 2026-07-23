@@ -146,19 +146,28 @@ class PillowRenderer(Renderer):
         draw.text(xy, "★" * max(0, int(count or 0)), font=self._pfont(size, 500), fill=color,
                   anchor=anchor)
 
-    _PORTRAIT_FILL = 0.94  # target frame fill (spec: ~92-96%)
+    _PORTRAIT_FILL = 1.0  # fill the frame window fully (pill mask crops the overflow)
 
     def _fit_portrait_ellipse(self, base: Image.Image, portrait: Image.Image | None,
                               box, glow) -> None:
-        """Composite the portrait into the oval: element glow backdrop + proportionally-scaled,
-        alpha-cropped, centred, LANCZOS-scaled art, clipped to the frame."""
+        """Composite the character into the frame's pill-shaped inner window.
+
+        The layer starts as an *opaque* element-tinted backdrop, which erases the template's
+        baked "CHARACTER IMAGE PLACEHOLDER" text/emblem completely, then the alpha-cropped art
+        is cover-fit on top. The whole layer is clipped to a rounded-rectangle (stadium) mask
+        matching the frame window, so the character sits *inside* the frame rather than pasted
+        on top of the placeholder, and never overflows the border.
+        """
         left, top, right, bottom = box
         w, h = right - left, bottom - top
+        radius = min(w, h) // 2  # stadium: fully rounded ends
 
-        # Element-coloured radial glow backdrop so the character sits on its element colour.
-        backdrop = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        ImageDraw.Draw(backdrop).ellipse([0, 0, w - 1, h - 1], fill=(*glow, 235))
-        backdrop = backdrop.filter(ImageFilter.GaussianBlur(8))
+        # Opaque dark base ERASES the baked placeholder; a soft element glow sits over it.
+        layer = Image.new("RGBA", (w, h), (18, 17, 24, 255))
+        glow_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        ImageDraw.Draw(glow_layer).rounded_rectangle(
+            [0, 0, w - 1, h - 1], radius=radius, fill=(*glow, 190))
+        layer.alpha_composite(glow_layer.filter(ImageFilter.GaussianBlur(14)))
 
         if portrait is not None:
             art = portrait.convert("RGBA")
@@ -167,23 +176,20 @@ class PillowRenderer(Renderer):
             if alpha_bbox:
                 art = art.crop(alpha_bbox)
             pw, ph = art.size
-            # Cover-fit to ~94% of the frame: preserve aspect, high-quality LANCZOS, never stretch.
+            # Cover-fit to fill the frame window: preserve aspect, high-quality LANCZOS.
             scale = max(w / pw, h / ph) * self._PORTRAIT_FILL
             new = art.resize((max(1, round(pw * scale)), max(1, round(ph * scale))), Image.LANCZOS)
             # Centre horizontally; bias vertically toward the top (faces/upper body).
-            nx = (new.width - w) // 2
-            ny = int((new.height - h) * 0.10)
-            nx = max(0, min(nx, max(0, new.width - w)))
-            ny = max(0, min(ny, max(0, new.height - h)))
-            paste_x = (w - new.width) // 2 if new.width < w else 0
-            paste_y = 0
+            nx = max(0, (new.width - w) // 2)
+            ny = max(0, int((new.height - h) * 0.08))
             cropped = new.crop((nx, ny, nx + min(w, new.width), ny + min(h, new.height)))
-            backdrop.alpha_composite(cropped, (max(0, paste_x), max(0, paste_y)))
+            paste_x = (w - cropped.width) // 2
+            layer.alpha_composite(cropped, (max(0, paste_x), 0))
 
-        # Elliptical mask so nothing overflows the frame; alpha composite for clean edges.
+        # Rounded-rectangle (stadium) mask matching the frame window.
         mask = Image.new("L", (w, h), 0)
-        ImageDraw.Draw(mask).ellipse([0, 0, w - 1, h - 1], fill=255)
-        base.paste(backdrop, (left, top), mask)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=255)
+        base.paste(layer, (left, top), mask)
 
     @staticmethod
     def _circle_icon(img: Image.Image, diameter: int) -> Image.Image:
@@ -204,10 +210,16 @@ class PillowRenderer(Renderer):
         out.paste(icon, (0, 0), mask)
         return out
 
-    def _paste_icon(self, base, icons, url, box, *, ring=None, ring_width=3, fit=False):
-        """Composite a pre-fetched icon (by URL) centred in ``box`` = (cx, cy, diameter)."""
+    def _paste_icon(self, base, icons, url, box, *, ring=None, ring_width=3, fit=False, erase=None):
+        """Composite a pre-fetched icon (by URL) centred in ``box`` = (cx, cy, diameter).
+
+        ``erase`` (an RGB colour) fills the icon's circle first, wiping the template's baked
+        placeholder emblem so a transparent PNG icon doesn't sit on top of it.
+        """
         cx, cy, d = box
         x0, y0 = cx - d // 2, cy - d // 2
+        if erase is not None:
+            ImageDraw.Draw(base).ellipse([x0, y0, x0 + d, y0 + d], fill=(*erase, 255))
         if ring is not None:
             ImageDraw.Draw(base).ellipse([x0 - 2, y0 - 2, x0 + d + 1, y0 + d + 1],
                                          outline=(*ring, 255), width=ring_width)
@@ -304,21 +316,51 @@ class PillowRenderer(Renderer):
         accent = theme["accent"]
         dark = (52, 44, 34)
 
-        # Mask the template's baked placeholder text (CHARACTER NAME, WEAPON NAME, Main Stat,
-        # Substat 1-4, SET NAME, header stars) by filling with the local panel colour so real
-        # values don't ghost. Panels are uniform cream; sample once (post-tint) and reuse.
-        cream = base.getpixel((1150, 300))[:3]
-        header_bg = base.getpixel((250, 18))[:3]
-        draw.rectangle((110, 24, 362, 70), fill=header_bg)      # CHARACTER NAME
-        draw.rectangle((116, 70, 250, 92), fill=header_bg)      # header rarity stars
-        draw.rectangle((116, 88, 322, 110), fill=header_bg)     # Title / Nickname
-        draw.rectangle((516, 126, 828, 156), fill=cream)        # WEAPON NAME
-        draw.rectangle((628, 510, 780, 536), fill=cream)        # SET NAME
+        # Erase the template's baked placeholder text/stars before drawing live values, by
+        # filling each region with its local panel colour (sampled adjacent to the text) so
+        # nothing ghosts through. Panels differ (dark top bar vs cream body), so sample per area.
+        def sample(x, y):
+            return base.getpixel((x, y))[:3]
+
+        def mask(box, color):
+            draw.rectangle(box, fill=color)
+
+        cream = sample(1000, 92)          # artifact / cream body panels
+        wcream_top = sample(690, 150)     # weapon panel cream near name/type boxes
+        wcream_bot = sample(470, 245)     # weapon panel cream near the rarity stars
+        header_bg = sample(330, 20)       # header marble
+        topbar = sample(500, 60)          # dark top-bar interior (not its lighter edge)
+        setcream = sample(760, 522)       # set-bonus panel cream (right of "SET NAME")
+        lvbox = sample(650, 213)          # weapon "Lv." box interior
+        rbox = (33, 26, 18)               # dark "R" box interior
+        self._cream = cream               # reused by talent/artifact/set erases
+
+        # -- header --
+        mask((110, 24, 362, 70), header_bg)       # CHARACTER NAME
+        mask((116, 70, 250, 92), header_bg)       # header rarity stars
+        mask((116, 88, 322, 110), header_bg)      # Title / Nickname
+        # -- top bar (dark): level "/" and baked rarity stars --
+        mask((428, 50, 476, 80), topbar)
+        mask((724, 52, 826, 80), topbar)
+        # -- weapon panel --
+        mask((512, 128, 704, 160), wcream_top)    # WEAPON NAME
+        mask((398, 215, 494, 239), wcream_bot)    # baked rarity stars under the icon
+        mask((630, 160, 760, 193), wcream_top)    # unused 2nd type box (removed entirely)
+        mask((801, 162, 835, 192), rbox)          # "R" box interior
+        mask((508, 201, 700, 226), lvbox)         # baked "Lv. /"
+        # -- set bonus: SET NAME (wide enough to also clear the leading 'S') --
+        mask((608, 510, 762, 542), setcream)
+        # -- artifacts: main stat, baked stars, substats per card --
         for i, top in enumerate(card_layout.ARTIFACT_CARD_TOP):
             dy = top - card_layout.ARTIFACT_CARD_REF_TOP
-            draw.rectangle((968, 104 + dy, 1082, 134 + dy), fill=cream)   # Main Stat
+            mask((968, 104 + dy, 1082, 134 + dy), cream)          # Main Stat
+            mask((896, 140 + dy, 968, 162 + dy), cream)           # baked rarity stars
             for sy in card_layout.ARTIFACT_SUBSTAT_YS:
-                draw.rectangle((1096, sy - 10 + dy, 1262, sy + 12 + dy), fill=cream)  # Substats
+                mask((1096, sy - 10 + dy, 1262, sy + 12 + dy), cream)  # Substats
+        # -- talent panel: baked "/" values under each icon --
+        talcream = sample(405, 548)
+        for tx, ty in card_layout.TALENT_LEVEL_POS:
+            mask((tx - 16, ty - 13, tx + 16, ty + 11), talcream)
 
         # -- header --
         self._draw_fit(draw, card_layout.NAME_POS, (c.name or "--").upper(),
@@ -330,7 +372,7 @@ class PillowRenderer(Renderer):
         # -- top bar: level / constellation / rarity --
         draw.text(card_layout.LEVEL_VALUE_POS, self._fmt(c.level), font=self._pfont(22, 600),
                   fill=(240, 232, 214), anchor="mm")
-        draw.text(card_layout.CONSTELLATION_VALUE_POS, f"C{c.constellation}",
+        draw.text(card_layout.CONSTELLATION_VALUE_POS, str(c.constellation),
                   font=self._pfont(20, 700), fill=(240, 232, 214), anchor="mm")
         self._stars(draw, card_layout.RARITY_BAR_STARS_POS, c.rarity or 0, size=18, anchor="mm")
 
@@ -339,10 +381,11 @@ class PillowRenderer(Renderer):
 
         # -- weapon (icon + rarity stars + name + level + refinement + type) --
         if c.weapon:
-            self._paste_icon(base, ctx.icons, c.weapon.icon, card_layout.WEAPON_ICON_BOX, fit=True)
+            self._paste_icon(base, ctx.icons, c.weapon.icon, card_layout.WEAPON_ICON_BOX,
+                             fit=True, erase=wcream_bot)
             self._draw_fit(draw, card_layout.WEAPON_NAME_POS, c.weapon.name or "--",
                            max_width=card_layout.WEAPON_NAME_MAX_WIDTH, size=22, weight=700, color=dark)
-            self._stars(draw, (card_layout.WEAPON_ICON_BOX[0], card_layout.WEAPON_ICON_BOX[1] + 44),
+            self._stars(draw, (card_layout.WEAPON_ICON_BOX[0], 226),
                         c.weapon.rarity or 0, size=13, anchor="mm")
             if c.weapon.weapon_type:
                 draw.text(card_layout.WEAPON_TYPE_POS, c.weapon.weapon_type, font=self._pfont(16),
@@ -352,9 +395,9 @@ class PillowRenderer(Renderer):
             draw.text(card_layout.WEAPON_REFINE_POS, f"R{c.weapon.refinement}",
                       font=self._pfont(18, 700), fill=(240, 232, 214), anchor="mm")
 
-        # -- talent icons --
+        # -- talent icons (erase the baked emblem first, then the transparent PNG icon) --
         for box, tal in zip(card_layout.TALENT_ICON_BOXES, (c.talents or [])[:3]):
-            self._paste_icon(base, ctx.icons, tal.icon, box, fit=True)
+            self._paste_icon(base, ctx.icons, tal.icon, box, fit=True, erase=talcream)
 
         # -- base stats (values right-aligned per labelled row) --
         s = c.stats
@@ -383,7 +426,8 @@ class PillowRenderer(Renderer):
             if art is None:
                 continue
             dy = card_layout.ARTIFACT_CARD_TOP[i] - card_layout.ARTIFACT_CARD_REF_TOP
-            self._paste_icon(base, ctx.icons, art.icon, card_layout.ARTIFACT_ICON_BOXES[i], fit=True)
+            self._paste_icon(base, ctx.icons, art.icon, card_layout.ARTIFACT_ICON_BOXES[i],
+                             fit=True, erase=cream)
             if art.main_stat:
                 mtext = f"{art.main_stat.name} {art.main_stat.value:g}"
                 self._draw_fit(draw, (card_layout.ARTIFACT_MAIN_STAT_POS[0],
@@ -400,9 +444,10 @@ class PillowRenderer(Renderer):
         set_name, set_count, set_icon = self._dominant_set(c.artifacts or [])
         if set_name:
             self._draw_fit(draw, card_layout.SET_NAME_POS, f"{set_name} ({set_count})",
-                           max_width=150, size=16, weight=700, color=dark, anchor="mm")
+                           max_width=150, size=16, weight=700, color=dark, anchor="lm")
         if set_icon:
-            self._paste_icon(base, ctx.icons, set_icon, card_layout.SET_ICON_BOX, fit=True)
+            self._paste_icon(base, ctx.icons, set_icon, card_layout.SET_ICON_BOX,
+                             fit=True, erase=setcream)
 
         # -- bottom summary bar --
         bottom_vals = [

@@ -55,8 +55,10 @@ def theme_for(element: str | None) -> dict[str, tuple[int, int, int]]:
 
 
 # --- Portrait -------------------------------------------------------------------------
-# Bounding box of the oval character frame (left, top, right, bottom).
-PORTRAIT_BOX = (150, 105, 352, 600)
+# Inner window of the character frame (left, top, right, bottom). The baked frame is a
+# rounded "stadium" (pill), NOT an ellipse — the art is clipped to a rounded rectangle whose
+# corner radius is half its width so it fills the frame instead of leaving gaps at the sides.
+PORTRAIT_BOX = (158, 116, 344, 596)
 
 # --- Header ---------------------------------------------------------------------------
 NAME_POS = (118, 34)             # top-left anchor, big
@@ -72,7 +74,7 @@ FRIENDSHIP_POS = (120, 560)      # value drawn after the "Friendship" pill label
 # --- Icon boxes (centre, size) for dynamically-fetched icons --------------------------
 WEAPON_ICON_BOX = (445, 168, 78)          # (cx, cy, diameter)
 TALENT_ICON_BOXES = [(428, 565, 44), (492, 565, 44), (557, 565, 44)]
-SET_ICON_BOX = (812, 536, 44)             # (cx, cy, diameter)
+SET_ICON_BOX = (774, 500, 30)             # (cx, cy, diameter) — square slot, top-right of panel
 ARTIFACT_ICON_BOXES = [                    # (cx, cy, diameter) per card
     (930, 112, 76), (930, 225, 76), (930, 338, 76), (930, 451, 76), (930, 564, 76),
 ]
@@ -88,8 +90,8 @@ WEAPON_ICON_RADIUS = 42
 WEAPON_NAME_POS = (525, 138)
 WEAPON_NAME_MAX_WIDTH = 300
 WEAPON_TYPE_POS = (560, 176)     # after the type icon box
-WEAPON_LEVEL_POS = (560, 212)    # "Lv. 90"
-WEAPON_REFINE_POS = (817, 176)   # centered in the "R" box (e.g. "R5")
+WEAPON_LEVEL_POS = (515, 213)    # left anchor for "Lv. 90" (baked "Lv. /" masked first)
+WEAPON_REFINE_POS = (818, 177)   # centered in the dark "R" box (e.g. "R5")
 
 # --- Base stats (right-aligned values per row) ----------------------------------------
 BASE_STAT_VALUE_X = 825          # right edge for values
@@ -108,7 +110,7 @@ BASE_STAT_ROWS_Y = {            # y baseline per labelled row (order matches tem
 TALENT_LEVEL_POS = [(428, 600), (492, 600), (557, 600)]  # NA, Skill, Burst
 
 # --- Set bonus ------------------------------------------------------------------------
-SET_NAME_POS = (700, 522)
+SET_NAME_POS = (615, 523)   # left anchor (baked "SET NAME" masked first)
 SET_2PC_POS = (662, 552)
 SET_4PC_POS = (662, 598)
 

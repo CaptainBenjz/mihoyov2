@@ -72,6 +72,28 @@ KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
 -------------------------------------------------------------------------------
 FIX HISTORY
 -------------------------------------------------------------------------------
+2026-07-23  Session 10 (fix character-card renderer masking/layering/positioning):
+  The live card renderer (bot/renderer/pillow_renderer.py) drew live values over the baked
+  template placeholders -> doubling: two Levels, "Lv. Lv. 50", duplicated stars (header/top-
+  bar rarity/weapon/artifacts), extra "S" before set name, empty weapon type box, character
+  pasted over the placeholder silhouette (ellipse mask left gaps in the pill frame).
+  Downloaded the template + used a coord-grid + marker overlay to read exact slot positions.
+  Fixes (template/layout NOT changed):
+   - Portrait: pill (rounded-rect/stadium) mask matching the frame window + opaque backdrop
+     that ERASES the baked "CHARACTER IMAGE PLACEHOLDER"; art cover-fills (PORTRAIT_FILL 1.0).
+     PORTRAIT_BOX -> (158,116,344,596).
+   - Masking: erase every baked placeholder with locally-sampled panel colour (dark top bar
+     vs cream body): level "/", top-bar rarity stars, weapon name, weapon stars (moved to
+     y226), unused 2nd type box, "R" box (dark), "Lv. /", SET NAME (widened -> no stray "S"),
+     artifact main/stars/substats, talent "/".
+   - _paste_icon gained erase= (fills the icon circle first) so weapon/talent/artifact/set
+     transparent icons no longer sit on baked emblems.
+   - Weapon: single "Lv. 50", "R1" centered in dark box, box2 removed, single stars.
+   - Top bar: single Level, Constellation as bare number in the circle, single rarity stars.
+   - Set: name left-aligned at (615,523), drawn once; SET_ICON_BOX -> (774,500,30) top-right.
+  Verified by rendering a test card + zoomed crops (no doubling; char inside frame). Tests:
+  +test_render_full_card_with_portrait_and_icons_is_correct_size. Full suite 127 passed.
+
 2026-07-23  Session 9 (layer-based JSON-driven rendering engine):
   Added enkarender/enkarender/layered/ — a Photoshop-style layered renderer built on the
   enkarender foundation (reuses FontManager, CacheManager, DrawingUtils). A card = ordered
