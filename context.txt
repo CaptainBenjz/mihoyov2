@@ -72,6 +72,26 @@ KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
 -------------------------------------------------------------------------------
 FIX HISTORY
 -------------------------------------------------------------------------------
+2026-07-23  Session 9 (layer-based JSON-driven rendering engine):
+  Added enkarender/enkarender/layered/ — a Photoshop-style layered renderer built on the
+  enkarender foundation (reuses FontManager, CacheManager, DrawingUtils). A card = ordered
+  stack of independent layers, each positioned entirely from a JSON layout (no coords in code).
+   - layout.py: LayerSpec (x,y,w,h,align,font,font_size,color,rotation,scale,opacity,z + props),
+     Layout (base_width/height + layers), JSON load, per-factor resolution scaling, hex/rgba
+     color parse.
+   - assets.py: LayeredAssetManager auto-locates assets from backgrounds/frames/panels/icons/
+     weapons/artifacts/elements/effects/characters/fonts (+ ext probing) with in-memory LRU
+     cache + placeholder fallback; compose helpers (contain_fit/opacity/rotation/alpha-composite).
+   - layers.py: 10 required renderer classes (Background/Panel/Character/Weapon/Artifact/Talent/
+     Stat/Text/Effect/Footer) + generic ImageLayerRenderer for frame/element/overlay; each draws
+     only its layer; REGISTRY maps type->renderer (register_layer for new types).
+   - engine.py: LayeredRenderer builds canvas at any target_width, stacks layers by z, delegates,
+     exports PNG. No hardcoded coords/assets.
+   - layouts/profile.json: full-stack sample layout. example/layered_demo.py renders it offline
+     at 1500px (placeholders) -> 21 layers composited OK.
+  New template = new JSON + assets, zero code change (tested). Tests: tests/test_layered.py (8).
+  enkarender suite 21 passed. Bot untouched. See enkarender/README.md "Layer-based renderer".
+
 2026-07-22  Session 8 (/mycharacters single-message nav + reliability + perf):
   Was: list = TEXT message; clicking a char sent a NEW photo message; back deleted it.
   Reliability bug: on_callback called query.answer() AFTER get_showcase, so on a cache miss

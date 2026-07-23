@@ -84,6 +84,42 @@ the asset dir and real icon URLs; the same code path then downloads + caches the
 cd enkarender && python -m pytest -q      # cache, fonts, engine, cards, parser
 ```
 
+## Layer-based renderer (JSON-driven, Photoshop-style)
+
+`enkarender.layered` is a second rendering style built on the same foundation: a card is an
+ordered **stack of independent layers**, each drawn by its own renderer and positioned
+entirely from a **JSON layout** — no coordinates in code. A brand-new template is a new JSON
+file + new asset folders, with **zero code changes**.
+
+**Layer stack:** background → decorative overlays → panels → frames → character splash →
+weapon → artifacts → talents → elements → stats → dynamic text → effects → footer → export.
+
+**Per-layer renderers** (each draws only its own layer): `BackgroundRenderer`, `PanelRenderer`,
+`CharacterRenderer`, `WeaponRenderer`, `ArtifactRenderer`, `TalentRenderer`, `StatRenderer`,
+`TextRenderer`, `EffectRenderer`, `FooterRenderer` (+ a generic image renderer for
+frames/elements/overlays). Types map to renderers via a registry, so new layer types drop in.
+
+**Each layer in the JSON** configures `x, y, width, height, align, font, font_size, color,
+rotation, scale, opacity, z-index` plus type-specific `props` (asset name / text template /
+repeat config). Assets are auto-located from `backgrounds/ frames/ panels/ icons/ weapons/
+artifacts/ elements/ effects/ characters/ fonts/` and cached in memory (decoded images +
+fonts). Layouts **scale to any resolution** from one base size — pass `target_width` and every
+coordinate/size/font is multiplied by a single factor.
+
+```python
+from enkarender.layered import LayeredAssetManager, LayeredRenderer, load_layout
+
+assets = LayeredAssetManager("assets")            # your asset folders
+engine = LayeredRenderer(assets)
+layout = load_layout("enkarender/layered/layouts/profile.json")
+png = engine.render_png(layout, data, target_width=1500)   # base 1000 -> rendered at 1500
+```
+
+Offline demo (renders the bundled layout with placeholder assets):
+```bash
+cd enkarender && PYTHONPATH=. python -m example.layered_demo   # writes example/layered_profile.png
+```
+
 ## License
 
 MIT. Original implementation; architecturally inspired by, but not derived from, the
