@@ -34,7 +34,12 @@ def parse_color(value: str | list | tuple | None, default: RGBA = (0, 0, 0, 0)) 
         return default
     if isinstance(value, (list, tuple)):
         vals = list(value) + [255] * (4 - len(value))
-        return tuple(int(v) for v in vals[:4])  # type: ignore[return-value]
+        try:
+            # Clamp to 0..255 so out-of-range JSON (e.g. [300, -5, 0]) can't make Pillow raise
+            # later and silently drop the whole layer; tolerate non-int elements.
+            return tuple(max(0, min(255, int(v))) for v in vals[:4])  # type: ignore[return-value]
+        except (TypeError, ValueError):
+            return default
     text = str(value).lstrip("#")
     if len(text) == 6:
         text += "ff"

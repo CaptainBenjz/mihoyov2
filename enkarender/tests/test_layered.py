@@ -47,6 +47,10 @@ def test_parse_color_variants():
     assert parse_color("#00ff0080") == (0, 255, 0, 128)
     assert parse_color([10, 20, 30]) == (10, 20, 30, 255)
     assert parse_color("nonsense", (1, 2, 3, 4)) == (1, 2, 3, 4)
+    # Out-of-range channels are clamped instead of making Pillow raise (dropping the layer).
+    assert parse_color([300, -5, 0]) == (255, 0, 0, 255)
+    # A non-numeric element yields the default rather than raising ValueError.
+    assert parse_color(["x", 0, 0], (1, 2, 3, 4)) == (1, 2, 3, 4)
 
 
 def test_scaling_multiplies_geometry():
