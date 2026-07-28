@@ -68,6 +68,33 @@ def test_map_showcase_defensive():
     assert c.stats.crit_rate == 70.5
 
 
+class _FakeConst:
+    def __init__(self, name, unlocked):
+        self.name = name
+        self.unlocked = unlocked
+
+
+def test_constellation_counts_unlocked_nodes():
+    """C2: two unlocked nodes out of the supplied list -> constellation == 2."""
+    client = EnkaClient()
+    nodes = [_FakeConst(f"C{i}", i < 2) for i in range(6)]
+    c = client._map_character(type("RC", (), {"id": "1", "name": "x", "constellations": nodes})())
+    assert c.constellation == 2
+
+
+def test_constellation_zero_is_not_overridden_by_stale_scalar():
+    """A genuine C0 (all nodes locked) must stay 0, even if a raw ``constellation`` attr exists.
+
+    Regression for the truthiness-``or`` bug: sum == 0 is falsy, so the old code fell through
+    to the raw scalar and mis-labelled a C0 character.
+    """
+    client = EnkaClient()
+    nodes = [_FakeConst(f"C{i}", False) for i in range(6)]
+    raw = type("RC", (), {"id": "1", "name": "x", "constellations": nodes, "constellation": 6})()
+    c = client._map_character(raw)
+    assert c.constellation == 0
+
+
 class _FakeStatType:
     def __init__(self, name):
         self.name = name

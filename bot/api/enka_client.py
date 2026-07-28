@@ -166,8 +166,14 @@ class EnkaClient:
             rarity=_opt_int(_get(rc, "rarity")),
             level=int(_num(_get(rc, "level", default=1), 1)),
             ascension=int(_num(_get(rc, "ascension", default=0))),
-            constellation=sum(1 for n in constellations if n.unlocked)
-            or int(_num(_get(rc, "constellations_unlocked", "constellation", default=0))),
+            # Count unlocked nodes when the list is present; only fall back to the raw scalar
+            # when there is no list. A truthiness ``or`` here would misreport a genuine C0
+            # (sum == 0 is falsy) as whatever the raw ``constellation`` attribute holds.
+            constellation=(
+                sum(1 for n in constellations if n.unlocked)
+                if constellations
+                else int(_num(_get(rc, "constellations_unlocked", "constellation", default=0)))
+            ),
             friendship=_opt_int(_get(rc, "friendship_level", "friendship")),
             icon=self._icon_key(_icon_url(icon_obj, "front", "circle", "side")),
             art=_icon_url(icon_obj, "gacha", "front", "circle"),  # full splash-art URL
