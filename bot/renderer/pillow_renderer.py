@@ -265,11 +265,12 @@ class PillowRenderer(Renderer):
             return None
         extra = getattr(stats, "extra", {}) or {}
         key = _ELEM_DMG_PROP.get(card_layout.canonical_element(element) or "")
-        candidates = []
+        # Prefer the character's own on-element DMG bonus when present. Only when it is
+        # absent do we fall back to the largest *_ADD_HURT — otherwise a larger off-element
+        # bonus (e.g. Physical DMG from artifacts) would override the on-element value.
         if key and key in extra:
-            candidates.append(extra[key])
-        # else fall back to the largest *_ADD_HURT present
-        candidates += [v for k, v in extra.items() if k.endswith("_ADD_HURT")]
+            return extra[key] * 100.0
+        candidates = [v for k, v in extra.items() if k.endswith("_ADD_HURT")]
         if not candidates:
             return None
         return max(candidates) * 100.0

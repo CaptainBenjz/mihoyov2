@@ -34,6 +34,26 @@ def _character(**kw) -> Character:
     return Character(**base)
 
 
+def test_elemental_bonus_prefers_on_element_over_larger_off_element():
+    """A larger off-element *_ADD_HURT (e.g. Physical DMG) must not override the on-element one."""
+    from pytest import approx
+
+    renderer = PillowRenderer()
+    stats = CharacterStats(extra={
+        "FIGHT_PROP_FIRE_ADD_HURT": 0.616,       # Pyro DMG (on-element)
+        "FIGHT_PROP_PHYSICAL_ADD_HURT": 0.90,    # larger, off-element
+    })
+    assert renderer._elemental_bonus(stats, "Fire") == approx(61.6)
+
+
+def test_elemental_bonus_falls_back_to_max_when_on_element_absent():
+    from pytest import approx
+
+    renderer = PillowRenderer()
+    stats = CharacterStats(extra={"FIGHT_PROP_PHYSICAL_ADD_HURT": 0.58})
+    assert renderer._elemental_bonus(stats, "Fire") == approx(58.0)
+
+
 def test_caption_with_ranking():
     ch = _character(ranking=Ranking(rank=2147, total_players=100000, top_percent=0.8,
                                     calculation_name="Hypercarry"))
