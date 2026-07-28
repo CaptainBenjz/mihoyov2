@@ -94,7 +94,14 @@ class RedisStore:
 
     # ------------------------------------------------------------------ users
     async def get_or_create(self, telegram_user_id: int, default_language: str = "en") -> dict[str, Any]:
-        """Ensure a user record exists and is registered. Returns the record."""
+        """Ensure a user record exists and is registered. Returns the record.
+
+        Mirrors the degradation contract of its siblings: when the circuit is open it goes
+        straight to the local fallback, and a live Redis failure falls back too (instead of
+        returning ``{}`` and silently skipping the first-contact user row).
+        """
+        if self._skip_redis():
+            return await self._fallback.get_or_create(telegram_user_id, default_language)
         key = _user_key(telegram_user_id)
         try:
             existing = await self._r.hgetall(key)
@@ -106,10 +113,15 @@ class RedisStore:
                     "last_seen": now,
                 })
                 await self._r.sadd(USERS_SET, telegram_user_id)
+                self._breaker.record_success()
                 return {"language": default_language, "created_at": now, "last_seen": now}
+            self._breaker.record_success()
             return existing
         except RedisError as exc:
+            self._breaker.record_failure()
             logger.warning("get_or_create failed for %s: %s", telegram_user_id, exc)
+            if self._fallback is not None:
+                return await self._fallback.get_or_create(telegram_user_id, default_language)
             return {}
 
     async def link_uid(self, telegram_user_id: int, uid: str, default_language: str = "en") -> None:
@@ -244,7 +256,14 @@ class RedisStore:
 
         Called for every update via the tracking handler. Idempotent (sets prevent
         duplicates). Never raises.
+
+        Participates in the circuit breaker: this is the single most frequently-called write,
+        so while Redis is known-down we skip it entirely rather than paying the full socket
+        timeout on every update (which would otherwise pile up background tasks for the whole
+        cooldown window). It is best-effort statistics/registration, so skipping is safe.
         """
+        if self._breaker.is_open():
+            return
         key = _user_key(telegram_user_id)
         try:
             async with self._r.pipeline(transaction=False) as pipe:
@@ -255,7 +274,9 @@ class RedisStore:
                     pipe.sadd(PRIVATE_SET, telegram_user_id)
                 pipe.incr(INTERACTIONS)
                 await pipe.execute()
+            self._breaker.record_success()
         except RedisError as exc:
+            self._breaker.record_failure()
             logger.debug("register_interaction failed for %s: %s", telegram_user_id, exc)
 
     async def register_group(self, chat_id: int) -> None:

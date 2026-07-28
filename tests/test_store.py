@@ -36,6 +36,9 @@ class _BoomRedis:
     async def hget(self, *a, **k):
         raise RedisError("down")
 
+    async def hgetall(self, *a, **k):
+        raise RedisError("down")
+
     async def hset(self, *a, **k):
         raise RedisError("down")
 
@@ -72,6 +75,32 @@ async def test_local_fallback_persists_to_disk(tmp_path):
     path = tmp_path / "local.json"
     await LocalStore(path).link_uid(9, "600000000")
     assert await LocalStore(path).get_uid(9) == "600000000"
+
+
+async def test_get_or_create_falls_back_when_redis_down(tmp_path):
+    """get_or_create must degrade to the local store like its account siblings, not return {}."""
+    from bot.database.local_store import LocalStore
+
+    fallback = LocalStore(tmp_path / "local.json")
+    store = RedisStore(_BoomRedis(), fallback=fallback)
+
+    record = await store.get_or_create(42, "en")
+    assert record.get("language") == "en"          # served from the fallback, not {}
+    assert store._skip_redis() is True             # the failure opened the circuit
+
+
+async def test_register_interaction_skips_when_circuit_open(tmp_path):
+    """While the breaker is open, register_interaction must not touch Redis at all."""
+    from bot.database.local_store import LocalStore
+
+    fallback = LocalStore(tmp_path / "local.json")
+    store = RedisStore(_BoomRedis(), fallback=fallback)
+
+    # Open the circuit via a failing write, then confirm the frequent write short-circuits.
+    await store.link_uid(1, "901211014")
+    assert store._breaker.is_open() is True
+    # If this hit the _BoomRedis pipeline it would raise; register_interaction swallows/skips.
+    await store.register_interaction(1, "private")  # must NOT raise
 
 
 async def test_get_or_create_registers_user(store):
