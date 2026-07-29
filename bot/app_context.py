@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from bot.api.akasha_client import AkashaClient
 from bot.api.enka_client import EnkaClient
+from bot.api.hoyolab_client import HoyolabRedeemer
 from bot.cache.redis_cache import RedisCache
 from bot.config import Settings, get_settings
 from bot.database.local_store import LocalStore
@@ -88,7 +89,7 @@ def build_app_context(settings: Settings | None = None) -> AppContext:
     theater_service = TheaterService(character_service)
     banner_service = BannerService()
     build_service = BuildService()
-    redemption_service = RedemptionService()
+    redemption_service = RedemptionService(HoyolabRedeemer(settings.hoyolab_cookie))
     broadcast_service = BroadcastService(store)
     stats_service = StatsService(store, redis, started_at)
     artwork_service = ArtworkService()

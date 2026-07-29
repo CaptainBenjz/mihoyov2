@@ -5,6 +5,9 @@ python-telegram-bot[all]==21.9
 enka==2.5.20
 akasha-py==0.3.0
 
+# HoYoLAB API wrapper — redeems gift codes on the configured account (/redeem)
+genshin==1.7.28
+
 # Primary datastore (Upstash-compatible Redis, async)
 redis==8.0.1
 
