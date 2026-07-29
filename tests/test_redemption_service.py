@@ -7,7 +7,7 @@ import genshin.errors as ge
 import pytest
 
 from bot.api.hoyolab_client import HoyolabRedeemer
-from bot.commands.redeem import _render
+from bot.commands.redeem import _IN_FLIGHT, _acquire, _release, _render
 from bot.services.redemption_service import (
     RedeemResult,
     RedeemStatus,
@@ -156,37 +156,43 @@ def _no_links(text: str) -> None:
     assert "open redemption" not in lowered
 
 
-def test_render_success_has_all_fields_and_no_links():
+def test_render_success_lists_returned_rewards():
     result = RedeemResult(
-        RedeemStatus.SUCCESS, code="GENSHINGIFT", uid="1813698313",
-        nickname="Chronoa", region="Asia", rewards=["Primogems ×60", "Hero's Wit ×5"],
+        RedeemStatus.SUCCESS, code="GENSHINGIFT",
+        rewards=["Primogems ×60", "Hero's Wit ×5"],
     )
     text = _render(result, "en")
-    assert isinstance(text, str)  # no (text, markup) tuple anymore
-    for expected in ("Redemption Successful", "GENSHINGIFT", "1813698313", "Chronoa", "Asia",
-                     "Primogems ×60", "Hero's Wit ×5", "in-game mailbox"):
+    assert isinstance(text, str)  # no (text, markup) tuple
+    for expected in ("Redemption Successful", "Rewards Received",
+                     "Primogems ×60", "Hero's Wit ×5", "Enjoy your adventure"):
         assert expected in text
     _no_links(text)
 
 
-def test_render_success_omits_unknown_optional_fields():
+def test_render_success_omits_rewards_block_when_none_returned():
     text = _render(RedeemResult(RedeemStatus.SUCCESS, code="GENSHINGIFT"), "en")
     assert "Redemption Successful" in text
-    assert "UID" not in text and "Rewards" not in text  # gracefully omitted when unknown
+    assert "Rewards Received" not in text  # never fabricate rewards we didn't get back
     _no_links(text)
+
+
+def test_render_success_escapes_reward_text():
+    text = _render(RedeemResult(RedeemStatus.SUCCESS, code="X", rewards=["<b>hax"]), "en")
+    assert "&lt;b&gt;hax" in text
+    assert "<b>hax" not in text
 
 
 @pytest.mark.parametrize(
     "status, marker",
     [
-        (RedeemStatus.INVALID, "Invalid Redemption Code"),
+        (RedeemStatus.INVALID, "Redeem Failed"),
+        (RedeemStatus.EXPIRED, "Redeem Failed"),
         (RedeemStatus.ALREADY_REDEEMED, "Already Redeemed"),
         (RedeemStatus.AUTH_FAILED, "Authentication Failed"),
         (RedeemStatus.COOLDOWN, "Temporary Error"),
         (RedeemStatus.SERVER_ERROR, "Temporary Error"),
-        (RedeemStatus.EXPIRED, "Redemption Failed"),
-        (RedeemStatus.WRONG_REGION, "Redemption Failed"),
-        (RedeemStatus.LEVEL_TOO_LOW, "Redemption Failed"),
+        (RedeemStatus.WRONG_REGION, "Redeem Failed"),
+        (RedeemStatus.LEVEL_TOO_LOW, "Redeem Failed"),
     ],
 )
 def test_render_all_layouts(status, marker):
@@ -195,14 +201,26 @@ def test_render_all_layouts(status, marker):
     _no_links(text)
 
 
-def test_render_expired_shows_expired_reason():
+def test_render_invalid_shows_official_hint():
+    text = _render(RedeemResult(RedeemStatus.INVALID, code="BADCODE"), "en")
+    assert "official HoYoverse redeem codes" in text
+
+
+def test_render_expired_shows_expired_copy():
     text = _render(RedeemResult(RedeemStatus.EXPIRED, code="GENSHINGIFT"), "en")
     assert "expired" in text.lower()
-    assert "No rewards were added" in text
+    assert "Better luck on the next code" in text
 
 
-def test_render_failed_card_escapes_code():
-    # The failed card echoes the code; a hostile code must be HTML-escaped, not injected.
-    text = _render(RedeemResult(RedeemStatus.EXPIRED, code="<script>"), "en")
-    assert "&lt;script&gt;" in text
-    assert "<script>" not in text
+# --- duplicate-submission guard ---------------------------------------------
+
+
+def test_in_flight_guard_blocks_second_submission():
+    _IN_FLIGHT.discard(777)
+    try:
+        assert _acquire(777) is True      # first submission claims the slot
+        assert _acquire(777) is False     # duplicate while in progress is blocked
+        _release(777)
+        assert _acquire(777) is True      # freed after completion
+    finally:
+        _release(777)
