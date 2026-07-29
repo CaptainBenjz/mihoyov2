@@ -102,6 +102,13 @@
   "language.choose": "🌐 Which language shall we speak, Traveler?",
   "language.set": "✅ Wonderful — I'll speak {language} with you from now on.",
 
+  "broadcast.not_authorized": "🚫 This command is reserved for my caretaker, Traveler.",
+  "broadcast.usage": "📣 <b>Broadcast</b>\n\nSend a message to everyone, Traveler:\n<code>/broadcast &lt;message&gt;</code>\n\nOr reply to any message with <code>/broadcast</code> to forward it as-is.\n\nOptional audience flag first: <code>--users</code> (default), <code>--groups</code>, or <code>--all</code>.",
+  "broadcast.empty": "🤔 There's no one to broadcast to yet, Traveler.",
+  "broadcast.starting": "📣 Broadcasting to {count} chats… I'll keep you posted.",
+  "broadcast.progress": "📣 Broadcasting… {done}/{total} delivered.",
+  "broadcast.summary": "✅ <b>Broadcast complete</b>\n\n📊 Total: {total}\n📬 Sent: {sent}\n🔕 Blocked/removed: {blocked}\n⚠️ Failed: {failed}",
+
   "stats.title": "📊 <b>Bot Statistics</b>",
   "stats.users": "👥 Registered users: {count}",
   "stats.groups": "💬 Groups: {count}",

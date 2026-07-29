@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Telegram
     bot_token: str = ""
 
+    # Bot administrators (comma/space-separated Telegram user ids). Only these users may
+    # run owner commands such as /broadcast. Empty = no admins (owner commands are dormant).
+    admin_ids: str = ""
+
     # Redis — the primary persistent datastore (Upstash-compatible).
     # Upstash redis:// URLs are auto-upgraded to TLS (rediss://) by the Redis client.
     redis_url: str = ""
@@ -57,6 +61,17 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    @property
+    def admin_id_set(self) -> set[int]:
+        """Parsed set of admin Telegram user ids (tolerant of commas/spaces + junk)."""
+        out: set[int] = set()
+        for part in self.admin_ids.replace(",", " ").split():
+            try:
+                out.add(int(part))
+            except ValueError:
+                continue
+        return out
 
     @property
     def assets_path(self) -> Path:

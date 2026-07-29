@@ -20,6 +20,7 @@ from bot.renderer.base import Renderer, get_renderer
 from bot.services.abyss_service import AbyssService
 from bot.services.account_service import AccountService
 from bot.services.banner_service import BannerService
+from bot.services.broadcast_service import BroadcastService
 from bot.services.build_service import BuildService
 from bot.services.artwork_service import ArtworkService
 from bot.services.character_service import CharacterService
@@ -43,6 +44,7 @@ class AppContext:
     banner_service: BannerService
     build_service: BuildService
     redemption_service: RedemptionService
+    broadcast_service: BroadcastService
     stats_service: StatsService
     artwork_service: ArtworkService
     akasha: AkashaClient  # held so its pooled HTTP session can be closed on shutdown
@@ -87,6 +89,7 @@ def build_app_context(settings: Settings | None = None) -> AppContext:
     banner_service = BannerService()
     build_service = BuildService()
     redemption_service = RedemptionService()
+    broadcast_service = BroadcastService(store)
     stats_service = StatsService(store, redis, started_at)
     artwork_service = ArtworkService()
 
@@ -101,6 +104,7 @@ def build_app_context(settings: Settings | None = None) -> AppContext:
         banner_service=banner_service,
         build_service=build_service,
         redemption_service=redemption_service,
+        broadcast_service=broadcast_service,
         stats_service=stats_service,
         artwork_service=artwork_service,
         akasha=akasha,

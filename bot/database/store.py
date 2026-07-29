@@ -291,6 +291,48 @@ class RedisStore:
         except RedisError as exc:
             logger.debug("unregister_group failed for %s: %s", chat_id, exc)
 
+    # ---------------------------------------------------- broadcast recipients
+    async def all_users(self) -> list[int]:
+        """Return every registered user id (for broadcasting). Empty list on failure."""
+        return await self._members(USERS_SET)
+
+    async def all_groups(self) -> list[int]:
+        """Return every registered group/supergroup chat id. Empty list on failure."""
+        return await self._members(GROUPS_SET)
+
+    async def _members(self, set_key: str) -> list[int]:
+        try:
+            members = await self._r.smembers(set_key)
+        except RedisError as exc:
+            logger.warning("smembers %s failed: %s", set_key, exc)
+            return []
+        ids: list[int] = []
+        for m in members or ():
+            try:
+                ids.append(int(m))
+            except (TypeError, ValueError):
+                continue
+        return ids
+
+    async def discard_users(self, ids: list[int]) -> None:
+        """Remove users from the registered/private sets (e.g. they blocked the bot)."""
+        if not ids:
+            return
+        try:
+            await self._r.srem(USERS_SET, *ids)
+            await self._r.srem(PRIVATE_SET, *ids)
+        except RedisError as exc:
+            logger.debug("discard_users failed: %s", exc)
+
+    async def discard_groups(self, ids: list[int]) -> None:
+        """Remove groups from the registered set (e.g. the bot was kicked)."""
+        if not ids:
+            return
+        try:
+            await self._r.srem(GROUPS_SET, *ids)
+        except RedisError as exc:
+            logger.debug("discard_groups failed: %s", exc)
+
     # -------------------------------------------------------------- statistics
     async def count_users(self) -> int:
         try:

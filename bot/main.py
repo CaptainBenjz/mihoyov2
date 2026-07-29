@@ -27,6 +27,7 @@ from bot.commands import (
     abyss,
     account,
     banner,
+    broadcast,
     build_guide,
     characters,
     ownership,
@@ -260,6 +261,9 @@ def _register_handlers(application: Application) -> None:
 
     # --- redemption ---
     application.add_handler(CommandHandler("redeem", redeem.redeem))
+
+    # --- admin (owner-only; intentionally NOT published in the command menu) ---
+    application.add_handler(CommandHandler("broadcast", broadcast.broadcast))
 
     # --- misc ---
     application.add_handler(CommandHandler("banner", banner.banner))
