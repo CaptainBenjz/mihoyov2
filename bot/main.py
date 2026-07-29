@@ -30,6 +30,7 @@ from bot.commands import (
     build_guide,
     characters,
     ownership,
+    redeem,
     settings_lang,
     start_help,
     stats,
@@ -198,6 +199,7 @@ async def _set_bot_commands(application: Application) -> None:
         ("preabysscard", "Previous Spiral Abyss card"),
         ("theater", "Imaginarium Theater"),
         ("theatercard", "Imaginarium Theater card"),
+        ("redeem", "Redeem a Genshin gift code"),
         ("banner", "Banner information"),
         ("build_guide", "Build recommendations"),
         ("settings", "Your settings"),
@@ -255,6 +257,9 @@ def _register_handlers(application: Application) -> None:
     # --- theater ---
     application.add_handler(CommandHandler("theater", theater.theater))
     application.add_handler(CommandHandler("theatercard", theater.theater_card))
+
+    # --- redemption ---
+    application.add_handler(CommandHandler("redeem", redeem.redeem))
 
     # --- misc ---
     application.add_handler(CommandHandler("banner", banner.banner))

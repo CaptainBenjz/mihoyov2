@@ -1,6 +1,6 @@
 {
   "start.welcome": "<tg-emoji emoji-id=\"6152048259289322289\">👋</tg-emoji> Ah, there you are, Traveler.\n\nI'm <b>Lauma</b>, your companion for builds, rankings, and every step of your Genshin journey. <tg-emoji emoji-id=\"4958489311726011319\">✨</tg-emoji>\n\n<tg-emoji emoji-id=\"5253577054137362120\">🔗</tg-emoji> Begin by linking your UID:\n/genshinlogin &lt;UID&gt;\n\nNeed a hand? Use <b>/help</b> to explore all my commands and features. <tg-emoji emoji-id=\"4956468890390496140\">💫</tg-emoji>",
-  "help.text": "📖 Here's everything I can help you with, Traveler.\n\n<b>Account</b>\n/genshinlogin &lt;UID&gt; — link your Genshin UID\n/genshinlogout — unlink your account\n/myuid — show your linked UID\n/myinfo — show your account info\n\n<b>Characters</b>\n/mycharacters (/myc) — browse your showcased characters\n/inspect &lt;UID&gt; — inspect another player's showcase\n\n<b>Spiral Abyss</b>\n/abyss — current Abyss\n/preabyss — previous Abyss\n/abysscard — current Abyss card\n/preabysscard — previous Abyss card\n\n<b>Imaginarium Theater</b>\n/theater — current Theater\n/theatercard — Theater card\n\n<b>More</b>\n/banner — banner information\n/build_guide — build recommendations\n/settings — your settings\n/language — change language\n\nI'm always here when you need me. <tg-emoji emoji-id=\"4958489311726011319\">✨</tg-emoji>",
+  "help.text": "📖 Here's everything I can help you with, Traveler.\n\n<b>Account</b>\n/genshinlogin &lt;UID&gt; — link your Genshin UID\n/genshinlogout — unlink your account\n/myuid — show your linked UID\n/myinfo — show your account info\n\n<b>Characters</b>\n/mycharacters (/myc) — browse your showcased characters\n/inspect &lt;UID&gt; — inspect another player's showcase\n\n<b>Spiral Abyss</b>\n/abyss — current Abyss\n/preabyss — previous Abyss\n/abysscard — current Abyss card\n/preabysscard — previous Abyss card\n\n<b>Imaginarium Theater</b>\n/theater — current Theater\n/theatercard — Theater card\n\n<b>Redeem</b>\n/redeem &lt;code&gt; — redeem a gift code for your account\n\n<b>More</b>\n/banner — banner information\n/build_guide — build recommendations\n/settings — your settings\n/language — change language\n\nI'm always here when you need me. <tg-emoji emoji-id=\"4958489311726011319\">✨</tg-emoji>",
 
   "common.loading": "⏳ Just a moment, Traveler…",
   "common.back": "⬅️ Back",
@@ -29,6 +29,24 @@
   "characters.page": "Page {current}/{total}",
 
   "inspect.usage": "Tell me whose showcase to inspect, like this:\n<code>/inspect &lt;UID&gt;</code>\nFor example: <code>/inspect 901211014</code>",
+
+  "redeem.usage": "🎁 Tell me which code to redeem, Traveler:\n<code>/redeem &lt;code&gt;</code>\nFor example: <code>/redeem GENSHINGIFT</code>",
+  "redeem.not_linked": "🔒 <b>Let's link your account first</b>\n\nI'll need to know who you are before redeeming codes, Traveler. Link once with:\n<code>/genshinlogin &lt;UID&gt;</code>\n\nThen come right back and try <code>/redeem &lt;code&gt;</code>. ✨",
+  "redeem.link_title": "🎁 <b>Redeem your gift code</b>",
+  "redeem.link_note": "🔹 Tap the button below to claim it on the official HoYoverse page — I've filled the code in for you.\n📬 Your rewards will arrive by in-game mail. Enjoy, Traveler! ✨",
+  "redeem.success_title": "✅ <b>Code redeemed — enjoy, Traveler!</b>",
+  "redeem.success_note": "📬 Your rewards are on their way and will arrive by in-game mail shortly. 🎉",
+  "redeem.field_code": "🎟️ Code: <code>{code}</code>",
+  "redeem.field_uid": "🔹 Linked UID: <code>{uid}</code>",
+  "redeem.field_nickname": "🌸 Traveler: {nickname}",
+  "redeem.field_region": "🌍 Region: {region}",
+  "redeem.field_rewards": "💎 Rewards: {rewards}",
+  "redeem.button_open": "🎁 Open redemption page",
+  "redeem.invalid": "❌ <b>That code doesn't look right</b>\n\n<code>{code}</code> isn't a valid gift code, Traveler. Codes are letters and numbers only — double-check for typos and try again. 🔍",
+  "redeem.expired": "⌛ <b>This code has expired</b>\n\n<code>{code}</code> is no longer active, Traveler. Gift codes only last a short while — keep an eye out for fresh ones! 🌸",
+  "redeem.already": "⚠️ <b>Already claimed</b>\n\nYou've already redeemed <code>{code}</code> on this account, Traveler. Each code can only be used once. 🛡️",
+  "redeem.wrong_region": "🌍 <b>Wrong region for this code</b>\n\n<code>{code}</code> isn't valid for your account's server, Traveler. Some codes are region-specific — try one for your region. 🔹",
+  "redeem.server_error": "🚫 <b>The redemption service is busy</b>\n\nI couldn't reach HoYoverse to redeem <code>{code}</code> just now, Traveler. Please give it a moment and try again. 🛡️",
 
   "character.details_title": "⚔️ <b>{name}</b>",
   "character.level": "Level: {level}",
