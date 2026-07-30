@@ -30,6 +30,7 @@ from bot.commands import (
     broadcast,
     build_guide,
     characters,
+    hoyolab_auth,
     ownership,
     redeem,
     settings_lang,
@@ -200,6 +201,8 @@ async def _set_bot_commands(application: Application) -> None:
         ("preabysscard", "Previous Spiral Abyss card"),
         ("theater", "Imaginarium Theater"),
         ("theatercard", "Imaginarium Theater card"),
+        ("hoyologin", "Link your HoYoLAB account (DM only)"),
+        ("hoyologout", "Unlink your HoYoLAB account"),
         ("redeem", "Redeem a Genshin gift code"),
         ("banner", "Banner information"),
         ("build_guide", "Build recommendations"),
@@ -259,7 +262,10 @@ def _register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("theater", theater.theater))
     application.add_handler(CommandHandler("theatercard", theater.theater_card))
 
-    # --- redemption ---
+    # --- HoYoLAB account linking + redemption ---
+    application.add_handler(CommandHandler("hoyologin", hoyolab_auth.hoyologin))
+    application.add_handler(CommandHandler("hoyologout", hoyolab_auth.hoyologout))
+    application.add_handler(CommandHandler("hoyostatus", hoyolab_auth.hoyostatus))
     application.add_handler(CommandHandler("redeem", redeem.redeem))
 
     # --- admin (owner-only; intentionally NOT published in the command menu) ---

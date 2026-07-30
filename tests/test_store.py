@@ -77,6 +77,17 @@ async def test_local_fallback_persists_to_disk(tmp_path):
     assert await LocalStore(path).get_uid(9) == "600000000"
 
 
+async def test_hoyolab_cookie_falls_back_when_redis_down(tmp_path):
+    """The encrypted session token must degrade to the local store like linked UIDs do."""
+    from bot.database.local_store import LocalStore
+
+    fallback = LocalStore(tmp_path / "local.json")
+    store = RedisStore(_BoomRedis(), fallback=fallback)
+
+    await store.set_hoyolab_cookie(3, "ENC")     # must NOT raise
+    assert await store.get_hoyolab_cookie(3) == "ENC"  # served from the fallback
+
+
 async def test_get_or_create_falls_back_when_redis_down(tmp_path):
     """get_or_create must degrade to the local store like its account siblings, not return {}."""
     from bot.database.local_store import LocalStore

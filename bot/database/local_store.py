@@ -103,3 +103,22 @@ class LocalStore:
     async def get_all_settings(self, telegram_user_id: int) -> dict[str, str]:
         async with self._lock:
             return dict(self._user(telegram_user_id).get("settings", {}))
+
+    # --- HoYoLAB session cookie (stored already-encrypted) ---
+    async def set_hoyolab_cookie(self, telegram_user_id: int, token: str) -> None:
+        async with self._lock:
+            self._user(telegram_user_id)["hoyolab_cookie"] = token
+            self._flush()
+
+    async def get_hoyolab_cookie(self, telegram_user_id: int) -> str | None:
+        async with self._lock:
+            return self._user(telegram_user_id).get("hoyolab_cookie")
+
+    async def clear_hoyolab_cookie(self, telegram_user_id: int) -> bool:
+        async with self._lock:
+            user = self._user(telegram_user_id)
+            had = "hoyolab_cookie" in user
+            user.pop("hoyolab_cookie", None)
+            if had:
+                self._flush()
+            return had

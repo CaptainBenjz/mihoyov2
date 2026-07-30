@@ -7,7 +7,7 @@ import genshin.errors as ge
 import pytest
 
 from bot.api.hoyolab_client import HoyolabRedeemer
-from bot.commands.redeem import _IN_FLIGHT, _acquire, _release, _render
+from bot.commands.redeem import _IN_FLIGHT, _acquire, _panel, _release, _render
 from bot.services.redemption_service import (
     RedeemResult,
     RedeemStatus,
@@ -66,6 +66,26 @@ async def test_default_service_reports_auth_failed():
     # No backend wired -> the session is treated as unconfigured.
     result = await RedemptionService().redeem("GENSHINGIFT")
     assert result.status is RedeemStatus.AUTH_FAILED
+
+
+async def test_service_uses_per_call_redeemer():
+    class _Default:
+        async def redeem(self, code):
+            raise AssertionError("per-call redeemer should take precedence")
+
+    class _PerUser:
+        async def redeem(self, code):
+            return RedeemResult(RedeemStatus.SUCCESS, code=code, uid="9", nickname="me")
+
+    result = await RedemptionService(_Default()).redeem("genshingift", redeemer=_PerUser())
+    assert result.status is RedeemStatus.SUCCESS
+    assert result.nickname == "me"
+
+
+def test_render_not_logged_in_panel_points_to_hoyologin():
+    text = _panel("en", "redeem.not_logged_in_h", "redeem.not_logged_in_body")
+    assert "hoyologin" in text.lower()
+    _no_links(text)
 
 
 # --- HoYoLAB backend ---------------------------------------------------------

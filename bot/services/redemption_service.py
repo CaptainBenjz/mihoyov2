@@ -81,13 +81,19 @@ class RedemptionService:
     def __init__(self, redeemer: Redeemer | None = None) -> None:
         self._redeemer = redeemer or _UnconfiguredRedeemer()
 
-    async def redeem(self, raw_code: str) -> RedeemResult:
-        """Validate ``raw_code`` then redeem it on the configured account. Never raises."""
+    async def redeem(self, raw_code: str, *, redeemer: Redeemer | None = None) -> RedeemResult:
+        """Validate ``raw_code`` then redeem it. Never raises.
+
+        ``redeemer`` overrides the default backend for this call — the command layer passes a
+        redeemer built from the requesting user's own session so the code lands on *their*
+        account.
+        """
         code = normalize_code(raw_code)
         if code is None:
             return RedeemResult(status=RedeemStatus.INVALID, code=(raw_code or "").strip())
+        backend = redeemer or self._redeemer
         try:
-            return await self._redeemer.redeem(code)
+            return await backend.redeem(code)
         except Exception as exc:  # noqa: BLE001 - a backend hiccup must never crash the command
             logger.warning("Redeem backend failed for code=%s: %s", code, exc)
             return RedeemResult(status=RedeemStatus.SERVER_ERROR, code=code, detail=str(exc))

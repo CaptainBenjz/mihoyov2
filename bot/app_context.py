@@ -17,6 +17,7 @@ from bot.config import Settings, get_settings
 from bot.database.local_store import LocalStore
 from bot.database.redis_client import RedisClient
 from bot.database.store import RedisStore
+from bot.utils.crypto import CookieCipher
 from bot.renderer.base import Renderer, get_renderer
 from bot.services.abyss_service import AbyssService
 from bot.services.account_service import AccountService
@@ -25,6 +26,7 @@ from bot.services.broadcast_service import BroadcastService
 from bot.services.build_service import BuildService
 from bot.services.artwork_service import ArtworkService
 from bot.services.character_service import CharacterService
+from bot.services.hoyolab_auth_service import HoyolabAuthService
 from bot.services.redemption_service import RedemptionService
 from bot.services.stats_service import StatsService
 from bot.services.theater_service import TheaterService
@@ -45,6 +47,7 @@ class AppContext:
     banner_service: BannerService
     build_service: BuildService
     redemption_service: RedemptionService
+    hoyolab_auth: HoyolabAuthService
     broadcast_service: BroadcastService
     stats_service: StatsService
     artwork_service: ArtworkService
@@ -90,6 +93,7 @@ def build_app_context(settings: Settings | None = None) -> AppContext:
     banner_service = BannerService()
     build_service = BuildService()
     redemption_service = RedemptionService(HoyolabRedeemer(settings.hoyolab_cookie))
+    hoyolab_auth = HoyolabAuthService(store, CookieCipher(settings.hoyolab_secret))
     broadcast_service = BroadcastService(store)
     stats_service = StatsService(store, redis, started_at)
     artwork_service = ArtworkService()
@@ -105,6 +109,7 @@ def build_app_context(settings: Settings | None = None) -> AppContext:
         banner_service=banner_service,
         build_service=build_service,
         redemption_service=redemption_service,
+        hoyolab_auth=hoyolab_auth,
         broadcast_service=broadcast_service,
         stats_service=stats_service,
         artwork_service=artwork_service,

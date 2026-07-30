@@ -77,6 +77,32 @@ class HoyolabRedeemer:
             logger.debug("HoYoLAB account info fetch failed: %s", exc)
         return (None, None)
 
+    # -- login validation --------------------------------------------------
+    async def validate(self) -> RedeemResult:
+        """Check the cookie authenticates and resolve the account it belongs to.
+
+        Returns ``SUCCESS`` with uid/nickname/region when the session is valid, else
+        ``AUTH_FAILED`` (or ``SERVER_ERROR`` if the library is missing). Used by the login
+        flow to verify a cookie *before* storing it. Never raises.
+        """
+        if not self._cookie:
+            return RedeemResult(status=RedeemStatus.AUTH_FAILED, code="", detail="empty cookie")
+        try:
+            import genshin  # noqa: F401
+        except ImportError:
+            return RedeemResult(status=RedeemStatus.SERVER_ERROR, code="", detail="genshin.py not installed")
+        try:
+            client = await self._get_client()
+        except Exception as exc:  # noqa: BLE001
+            return RedeemResult(status=RedeemStatus.AUTH_FAILED, code="", detail=str(exc))
+
+        uid, nickname = await self._account_info(client)
+        if not uid:
+            return RedeemResult(status=RedeemStatus.AUTH_FAILED, code="", detail="no game account / invalid cookie")
+        return RedeemResult(
+            status=RedeemStatus.SUCCESS, code="", uid=uid, nickname=nickname, region=uid_region(uid)
+        )
+
     # -- redemption --------------------------------------------------------
     async def redeem(self, code: str) -> RedeemResult:
         if not self._cookie:

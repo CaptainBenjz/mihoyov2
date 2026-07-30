@@ -24,6 +24,7 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
+from bot.api.hoyolab_client import HoyolabRedeemer
 from bot.commands.common import get_app, guard, resolve_language, user_id_of, with_action
 from bot.services.redemption_service import RedeemResult, RedeemStatus
 from bot.translations.i18n import t
@@ -66,6 +67,12 @@ async def redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _send(message, t("redeem.usage", lang))
         return
 
+    # Redemption acts on the user's own linked HoYoLAB account. No session -> ask them to link.
+    cookie = await app.hoyolab_auth.get_cookie(user_id)
+    if not cookie:
+        await _send(message, _panel(lang, "redeem.not_logged_in_h", "redeem.not_logged_in_body"))
+        return
+
     # Prevent duplicate submissions while a redemption is already in progress for this user.
     if not _acquire(user_id):
         await _send(message, _panel(lang, "redeem.in_progress_h", "redeem.in_progress_body"))
@@ -73,7 +80,9 @@ async def redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     status_msg = await _send(message, t("redeem.loading", lang))
     try:
-        result = await app.redemption_service.redeem(context.args[0])
+        result = await app.redemption_service.redeem(
+            context.args[0], redeemer=HoyolabRedeemer(cookie)
+        )
     finally:
         _release(user_id)
 

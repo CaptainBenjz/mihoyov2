@@ -31,12 +31,14 @@ class Settings(BaseSettings):
     # run owner commands such as /broadcast. Empty = no admins (owner commands are dormant).
     admin_ids: str = ""
 
-    # HoYoLAB session cookie for the bot's configured account, used by /redeem to claim
-    # gift codes automatically (no UID/login prompt, no website redirect). Paste the full
-    # cookie string from an authenticated HoYoLAB session (must include cookie_token_v2 /
-    # account_id_v2 or the legacy cookie_token / account_id). Empty = /redeem reports that
-    # the session must be configured. Never commit this — keep it in the environment only.
+    # Optional single fallback HoYoLAB cookie. Per-user login (/hoyologin) is now the primary
+    # path, so this is normally left empty. Kept for compatibility. Never commit a real value.
     hoyolab_cookie: str = ""
+
+    # Encryption key for storing each user's HoYoLAB session cookie at rest (used by
+    # /hoyologin). Any long random string. If empty, per-user login is disabled and no
+    # credentials are ever stored. Never commit this — keep it in the environment only.
+    hoyolab_secret: str = ""
 
     # Redis — the primary persistent datastore (Upstash-compatible).
     # Upstash redis:// URLs are auto-upgraded to TLS (rediss://) by the Redis client.

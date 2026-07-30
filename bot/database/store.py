@@ -250,6 +250,53 @@ class RedisStore:
                 return await self._fallback.get_all_settings(telegram_user_id)
             return {}
 
+    # ----------------------------------------------- HoYoLAB session cookie
+    # Stored as an (already-encrypted) token on the user hash, so it never appears in the
+    # free-form settings hash and can't leak via get_all_settings. Mirrors the link_uid
+    # degradation pattern (circuit breaker + local fallback).
+    async def set_hoyolab_cookie(self, telegram_user_id: int, token: str) -> None:
+        if self._skip_redis():
+            await self._fallback.set_hoyolab_cookie(telegram_user_id, token)
+            return
+        key = _user_key(telegram_user_id)
+        try:
+            await self._r.hset(key, "hoyolab_cookie", token)
+            await self._r.sadd(USERS_SET, telegram_user_id)
+            self._breaker.record_success()
+        except RedisError as exc:
+            self._breaker.record_failure()
+            logger.error("set_hoyolab_cookie failed for %s: %s", telegram_user_id, exc)
+            if self._fallback is not None:
+                await self._fallback.set_hoyolab_cookie(telegram_user_id, token)
+
+    async def get_hoyolab_cookie(self, telegram_user_id: int) -> str | None:
+        if self._skip_redis():
+            return await self._fallback.get_hoyolab_cookie(telegram_user_id)
+        try:
+            value = await self._r.hget(_user_key(telegram_user_id), "hoyolab_cookie")
+            self._breaker.record_success()
+            return value
+        except RedisError as exc:
+            self._breaker.record_failure()
+            logger.warning("get_hoyolab_cookie failed for %s: %s", telegram_user_id, exc)
+            if self._fallback is not None:
+                return await self._fallback.get_hoyolab_cookie(telegram_user_id)
+            return None
+
+    async def clear_hoyolab_cookie(self, telegram_user_id: int) -> bool:
+        if self._skip_redis():
+            return await self._fallback.clear_hoyolab_cookie(telegram_user_id)
+        try:
+            removed = await self._r.hdel(_user_key(telegram_user_id), "hoyolab_cookie")
+            self._breaker.record_success()
+            return bool(removed)
+        except RedisError as exc:
+            self._breaker.record_failure()
+            logger.error("clear_hoyolab_cookie failed for %s: %s", telegram_user_id, exc)
+            if self._fallback is not None:
+                return await self._fallback.clear_hoyolab_cookie(telegram_user_id)
+            return False
+
     # ----------------------------------------------- registration & sessions
     async def register_interaction(self, telegram_user_id: int, chat_type: str | None) -> None:
         """Register a user on interaction and record lightweight session metadata.
