@@ -28,3 +28,16 @@ def test_wrong_secret_cannot_decrypt():
     token = CookieCipher("secret-one").encrypt("data")
     # A different secret derives a different key -> decrypt fails softly.
     assert CookieCipher("secret-two").decrypt(token) is None
+
+
+def test_session_secret_falls_back_to_bot_token():
+    from bot.config import Settings
+
+    # No dedicated secret -> derive the key from BOT_TOKEN so login works out of the box.
+    s = Settings(bot_token="123456:ABCDEF", hoyolab_secret="")
+    assert s.session_secret == "123456:ABCDEF"
+    assert CookieCipher(s.session_secret).available is True
+
+    # An explicit HOYOLAB_SECRET takes precedence.
+    s2 = Settings(bot_token="123456:ABCDEF", hoyolab_secret="dedicated-key")
+    assert s2.session_secret == "dedicated-key"

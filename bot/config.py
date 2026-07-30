@@ -35,9 +35,10 @@ class Settings(BaseSettings):
     # path, so this is normally left empty. Kept for compatibility. Never commit a real value.
     hoyolab_cookie: str = ""
 
-    # Encryption key for storing each user's HoYoLAB session cookie at rest (used by
-    # /hoyologin). Any long random string. If empty, per-user login is disabled and no
-    # credentials are ever stored. Never commit this — keep it in the environment only.
+    # Optional dedicated encryption key for stored HoYoLAB sessions (/hoyologin). When empty,
+    # the key is derived from BOT_TOKEN instead (see ``session_secret``), so per-user login
+    # works out of the box. Set this only if you want session encryption independent of the
+    # bot token. Never commit a real value — keep it in the environment only.
     hoyolab_secret: str = ""
 
     # Redis — the primary persistent datastore (Upstash-compatible).
@@ -70,6 +71,17 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    @property
+    def session_secret(self) -> str:
+        """Key material for encrypting stored user sessions (/hoyologin).
+
+        Uses ``HOYOLAB_SECRET`` when set; otherwise falls back to ``BOT_TOKEN`` — which is
+        already a stable, required secret — so per-user login works without extra config.
+        Trade-off: if you rotate the bot token, previously stored logins become unreadable and
+        users simply re-run /hoyologin. Set a dedicated ``HOYOLAB_SECRET`` to avoid that.
+        """
+        return self.hoyolab_secret or self.bot_token
 
     @property
     def admin_id_set(self) -> set[int]:
