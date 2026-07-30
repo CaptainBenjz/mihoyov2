@@ -13,12 +13,14 @@ import html
 
 from telegram import Update
 from telegram.constants import ChatType, ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from bot.commands.common import get_app, guard, resolve_language, user_id_of
 from bot.services.redemption_service import RedeemStatus
 from bot.translations.i18n import t
 from bot.utils.logging import get_logger
+from bot.utils.text import strip_custom_emoji
 
 logger = get_logger(__name__)
 
@@ -26,10 +28,23 @@ HR = "━━━━━━━━━━━━━━━━━━"
 
 
 async def _send(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str) -> None:
+    """Send an HTML message, degrading premium custom emoji to standard ones if rejected."""
     try:
         await context.bot.send_message(
             chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, disable_web_page_preview=True
         )
+        return
+    except BadRequest:
+        fallback = strip_custom_emoji(text)
+        if fallback != text:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id, text=fallback, parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                )
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("hoyolab_auth send fallback failed: %s", exc)
     except Exception as exc:  # noqa: BLE001
         logger.debug("hoyolab_auth send failed: %s", exc)
 
