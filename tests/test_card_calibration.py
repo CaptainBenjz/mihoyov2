@@ -86,3 +86,36 @@ def test_weapon_stat_boxes_are_distinct_and_share_a_baseline():
     main, sub = card_layout.WEAPON_MAIN_STAT_POS, card_layout.WEAPON_SUB_STAT_POS
     assert sub[0] > main[0], "secondary stat sits in the second box"
     assert main[1] == sub[1], "both boxes share one measured baseline"
+
+
+# --------------------------------------------------------------------------- phase 12
+def test_base_stat_rows_match_the_reference_pitch():
+    """Measured off the reference: value centres 287..460, pitch ~24.6.
+
+    The previous 283..448 grid drifted up to 9px high by the last row, which is what put
+    the numbers on the horizontal rules instead of above them.
+    """
+    from bot.renderer.slot_manager import get_layout
+
+    layout = get_layout()
+    keys = ("hp", "atk", "def", "em", "crit-rate", "crit-dmg",
+            "energy-recharge", "elemental-bonus")
+    ys = [layout.text_slot(f"stat-{k}").y for k in keys]
+    assert ys == sorted(ys)
+    assert ys[0] == 287 and ys[-1] == 460
+    gaps = [ys[i + 1] - ys[i] for i in range(len(ys) - 1)]
+    assert all(24 <= g <= 26 for g in gaps), gaps
+
+
+def test_set_bonus_icon_has_its_own_slot_inside_the_panel():
+    """It must not reuse an artifact slot, and must sit inside the panel's square."""
+    from bot.renderer.slot_manager import get_layout
+
+    slot = get_layout().image_slot("artifact-set-image")
+    x0, y0, x1, y1 = slot.box
+    assert 780 <= x0 and x1 <= 840, slot.box
+    assert 495 <= y0 and y1 <= 550, slot.box
+    # Distinct from every artifact icon slot.
+    others = [get_layout().image_slot(f"artifact-{s}-image").box
+              for s in ("flower", "plume", "sands", "goblet", "circlet")]
+    assert slot.box not in others

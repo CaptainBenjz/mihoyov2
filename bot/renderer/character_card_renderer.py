@@ -121,6 +121,16 @@ class CharacterCardRenderer:
         box(806, 166, 832, 189, c["weapon_top"])   # refinement box
         box(508, 201, 700, 226, c["level_box"])    # "Lv. /"
         box(608, 510, 762, 542, c["set"])          # set name
+        # The constellation cell bakes an empty circle placeholder; without clearing it the
+        # dynamic "C1" is drawn straight through the ring.
+        box(586, 50, 620, 84, _sample(draw._image, int(566 * scale), int(66 * scale)))
+        # Enka exposes no set-bonus descriptions, so the template's sample copy would stay
+        # visible under empty slots. Clear both description blocks (the "2-/4-Piece Bonus"
+        # headings themselves are real template furniture and are kept).
+        box(636, 553, 800, 581, c["set"])
+        box(636, 599, 800, 622, c["set"])
+        # Friendship value area next to the baked heart pill.
+        box(124, 552, 168, 570, _sample(draw._image, int(100 * scale), int(561 * scale)))
         box(428, 439, 560, 459, c["cream"])        # baked "Pyro DMG Bonus" (stats row)
 
         # Bottom summary bar: clear each baked "/" placeholder and the element label, using

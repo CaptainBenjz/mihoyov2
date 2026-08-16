@@ -33,7 +33,7 @@
       <text id="character-level" x="450" y="62" data-anchor="middle" data-size="22" data-max-width="80" data-min-size="10" data-weight="600"/>
       <text id="character-constellation" x="603" y="66" data-anchor="middle" data-size="20" data-max-width="40" data-min-size="10" data-weight="700"/>
       <text id="character-rarity-bar" x="770" y="66" data-anchor="middle" data-size="18" data-max-width="120" data-min-size="10" data-weight="400"/>
-      <text id="character-friendship" x="120" y="560" data-anchor="start" data-size="16" data-max-width="60" data-min-size="10" data-weight="400"/>
+      <text id="character-friendship" x="128" y="561" data-anchor="start" data-size="16" data-max-width="60" data-min-size="10" data-weight="400"/>
     </g>
 
     <g id="weapon-slot">
@@ -47,17 +47,17 @@
     </g>
 
     <g id="stats-slot">
-      <text id="stat-hp" x="825" y="283" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
-      <text id="stat-atk" x="825" y="307" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
-      <text id="stat-def" x="825" y="331" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
-      <text id="stat-em" x="825" y="355" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
-      <text id="stat-crit-rate" x="825" y="379" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
-      <text id="stat-crit-dmg" x="825" y="402" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
-      <text id="stat-energy-recharge" x="825" y="425" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
+      <text id="stat-hp" x="825" y="287" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
+      <text id="stat-atk" x="825" y="312" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
+      <text id="stat-def" x="825" y="337" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
+      <text id="stat-em" x="825" y="361" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
+      <text id="stat-crit-rate" x="825" y="386" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
+      <text id="stat-crit-dmg" x="825" y="410" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
+      <text id="stat-energy-recharge" x="825" y="435" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
       <!-- The template bakes "Pyro DMG Bonus"; these slots draw the character's own
            element over it so a Cryo character never reads as Pyro. -->
-      <text id="stat-elemental-bonus-label" x="430" y="449" data-anchor="start" data-size="13" data-max-width="150" data-min-size="9" data-weight="400"/>
-      <text id="stat-elemental-bonus" x="825" y="448" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
+      <text id="stat-elemental-bonus-label" x="430" y="460" data-anchor="start" data-size="13" data-max-width="150" data-min-size="9" data-weight="400"/>
+      <text id="stat-elemental-bonus" x="825" y="460" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
     </g>
 
     <g id="talents-slot">
@@ -70,7 +70,7 @@
     </g>
 
     <g id="set-bonus-slot">
-      <rect id="artifact-set-image" x="759" y="485" width="30" height="30" fill="none" data-fit="contain" data-clip="rect"/>
+      <rect id="artifact-set-image" x="794" y="506" width="34" height="34" fill="none" data-fit="contain" data-clip="rect"/>
       <text id="artifact-set-name" x="615" y="523" data-anchor="start" data-size="17" data-max-width="140" data-min-size="10" data-weight="400"/>
       <text id="artifact-set-2pc" x="662" y="552" data-anchor="start" data-size="11" data-max-width="190" data-min-size="10" data-weight="400"/>
       <text id="artifact-set-4pc" x="662" y="598" data-anchor="start" data-size="11" data-max-width="190" data-min-size="10" data-weight="400"/>
