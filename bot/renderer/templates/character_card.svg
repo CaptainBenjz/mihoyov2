@@ -26,7 +26,7 @@
 
   <g id="dynamic-layer">
     <g id="character-slot">
-      <rect id="character-image" x="158" y="116" width="186" height="480" fill="none" data-fit="contain" data-clip="stadium"/>
+      <rect id="character-image" x="158" y="116" width="186" height="480" fill="none" data-fit="cover" data-clip="stadium"/>
       <text id="character-name" x="118" y="33" data-anchor="start" data-size="42" data-max-width="262" data-min-size="10" data-weight="600"/>
       <text id="character-rarity" x="120" y="74" data-anchor="start" data-size="20" data-max-width="140" data-min-size="10" data-weight="400"/>
       <text id="character-title" x="120" y="96" data-anchor="start" data-size="18" data-max-width="230" data-min-size="10" data-weight="400"/>

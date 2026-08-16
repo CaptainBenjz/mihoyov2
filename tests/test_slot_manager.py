@@ -87,9 +87,15 @@ def test_every_image_slot_has_a_real_box_and_fit_rule(layout):
         assert slot.clip in ("rect", "circle", "stadium"), slot.id
 
 
-def test_character_image_is_contained_not_stretched(layout):
+def test_character_image_fills_the_frame_without_distortion(layout):
+    """Splash art is 'cover': it fills the pill window and the mask crops the overflow.
+
+    'contain' would letterbox it — Enka's splash sheets are landscape, so containing a
+    2048x1024 sheet in a 186x480 portrait window shrinks the character to a sliver.
+    Aspect ratio is preserved either way; image_fitter applies one ratio to both axes.
+    """
     slot = layout.image_slot("character-image")
-    assert slot.fit == "contain", "the portrait must never be distorted"
+    assert slot.fit == "cover"
     assert slot.clip == "stadium", "clipped to the frame's pill window"
 
 
@@ -103,3 +109,46 @@ def test_layout_reloads_from_disk(tmp_path):
     fresh = load_layout()
     assert isinstance(fresh.text["character-name"], TextSlot)
     assert isinstance(fresh.images["character-image"], ImageSlot)
+
+
+# --------------------------------------------------------------------------- fitters
+def test_image_fitter_preserves_aspect_ratio():
+    """One ratio on both axes — an image can be cropped, never stretched."""
+    from PIL import Image
+
+    from bot.renderer.image_fitter import fit
+
+    src = Image.new("RGBA", (2048, 1024))
+    for mode in ("contain", "cover"):
+        out = fit(src, 186, 480, mode=mode)
+        assert abs(out.width / out.height - 2.0) < 0.02, mode
+
+
+def test_image_fitter_trims_transparent_padding():
+    """Enka splash sheets pad the character with transparency, differently per character."""
+    from PIL import Image
+
+    from bot.renderer.image_fitter import trim_transparent
+
+    src = Image.new("RGBA", (400, 400), (0, 0, 0, 0))
+    src.paste(Image.new("RGBA", (50, 80), (255, 0, 0, 255)), (100, 60))
+    assert trim_transparent(src).size == (50, 80)
+
+
+def test_text_fitter_shrinks_then_truncates():
+    from PIL import Image, ImageDraw, ImageFont
+
+    from bot.renderer.slot_manager import TextSlot
+    from bot.renderer.text_fitter import fit_text
+
+    draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    font_for = lambda size, weight=400: ImageFont.load_default(size)  # noqa: E731
+    slot = TextSlot(id="t", x=0, y=0, size=20, max_width=60, min_size=8)
+
+    short, _ = fit_text(draw, "Hi", slot, font_for)
+    assert short == "Hi", "short text is untouched"
+
+    long_text = "Fragment of Harmonic Whimsy and Then Some More Words"
+    fitted, font = fit_text(draw, long_text, slot, font_for)
+    assert draw.textlength(fitted, font=font) <= slot.max_width
+    assert fitted.endswith("…"), "falls back to truncation once at min size"
