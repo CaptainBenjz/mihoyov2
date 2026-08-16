@@ -64,6 +64,11 @@ class AppContext:
         await self.redis.close()
         await self.artwork_service.aclose()
         await self.akasha.aclose()
+        # The character metadata resolver is a process-wide singleton (it mirrors enka.py's
+        # own singleton assets), so it is closed here rather than held as a field.
+        from bot.api.character_metadata import get_metadata_resolver
+
+        await get_metadata_resolver().aclose()
 
 
 def build_app_context(settings: Settings | None = None) -> AppContext:

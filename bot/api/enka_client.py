@@ -5,6 +5,23 @@ Responsibilities:
     * Map the library's response objects into our framework-agnostic domain models.
     * Translate library / network errors into :mod:`bot.utils.errors` domain exceptions.
 
+Enka.Network is the source of truth for *which* characters a player showcases and for their
+build data; nothing in this module enumerates characters, so a character released tomorrow
+flows through unchanged.
+
+Three properties make that hold in practice:
+
+* **Fresh metadata.** enka.py downloads its character/text metadata once and never updates
+  it again, so a stale copy silently blanks out any character released after it was written.
+  :mod:`bot.api.enka_assets` refreshes it on a TTL, and again on demand the moment a
+  character fails to resolve.
+* **Re-parsing, not re-fetching.** The showcase payload is fetched raw and parsed locally,
+  so recovering from stale metadata costs zero extra Enka.Network requests.
+* **Per-character isolation.** One unparsable character (a new artifact set, an unknown
+  quality type) can never take down the whole showcase, and a character the metadata doesn't
+  cover yet is still shown — resolved through :mod:`bot.api.character_metadata` — rather
+  than dropped.
+
 The mapping is deliberately defensive: Enka's schema evolves and the wrapper's attribute
 names can shift between versions, so every field is read via ``getattr``/helpers and a
 failure to map one field never discards the whole character. If the upstream library or
@@ -15,12 +32,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from bot.api.character_metadata import CharacterMeta, get_metadata_resolver, placeholder_name
+from bot.api.enka_assets import get_asset_refresher
 from bot.models.artifact import Artifact, ArtifactStat
 from bot.models.character import Character, CharacterStats, ConstellationNode, Talent
 from bot.models.player import PlayerInfo, Showcase
 from bot.models.weapon import Weapon
 from bot.utils.errors import (
     ApiUnavailable,
+    BotError,
     EmptyShowcase,
     NetworkError,
     ProfilePrivate,
@@ -56,8 +76,9 @@ def _get(obj: Any, *names: str, default: Any = None) -> Any:
 class EnkaClient:
     """Thin async client around ``enka.GenshinClient``.
 
-    A fresh library client is created per call inside an ``async with`` block, which is the
-    usage the library expects and keeps us stateless and safe under concurrency.
+    A fresh library client is created and closed per call, which is the usage the library
+    expects and keeps us stateless and safe under concurrency. (Its *metadata*, by contrast,
+    is a process-wide singleton — see :mod:`bot.api.enka_assets` for how it is kept fresh.)
     """
 
     def __init__(self, language: str = "en") -> None:
@@ -66,23 +87,192 @@ class EnkaClient:
     # -- public API --------------------------------------------------------
     async def fetch_showcase(self, uid: str, language: str | None = None) -> Showcase:
         """Fetch and map a player's showcase. Raises a domain error on failure."""
-        raw = await self._fetch_raw(uid, language or self._language)
-        return self._map_showcase(uid, raw)
+        language = language or self._language
+        logger.info("[ENKA] Fetching player data for UID %s (language=%s)", uid, language)
+        raw = await self._fetch_raw(uid, language)
+        showcase = self._map_showcase(uid, raw)
+        logger.info("[ENKA] Characters received: %d", len(showcase.characters))
+        await self._enrich_unresolved(showcase, language)
+        for character in showcase.characters:
+            logger.info("[ENKA] Character ID: %s", character.id)
+            logger.info("[ENKA] Character name: %s", character.name)
+        return showcase
 
     # -- internals ---------------------------------------------------------
     async def _fetch_raw(self, uid: str, language: str) -> Any:
+        """Fetch the showcase and parse it, refreshing game metadata when needed.
+
+        The payload is requested **once** with ``raw=True`` and parsed locally. That way, if
+        the parse reveals characters the local metadata doesn't know about, we can refresh
+        the metadata and parse the very same payload again without a second API request.
+        """
         # Imported lazily so importing this module never requires the network library.
         try:
             import enka  # type: ignore
         except ImportError as exc:  # pragma: no cover - depends on environment
             raise ApiUnavailable("enka-api not installed") from exc
 
-        lang = self._resolve_language(enka, language)
+        refresher = get_asset_refresher()
+        client = enka.GenshinClient(self._resolve_language(enka, language))
         try:
-            async with enka.GenshinClient(lang) as client:
-                return await client.fetch_showcase(int(uid))
+            await self._start_client(client, enka, language)
+            # Scheduled refresh: keeps metadata current in a long-lived process, where the
+            # library would otherwise reuse whatever it downloaded on the very first call.
+            await refresher.ensure_fresh(client)
+
+            payload = await client.fetch_showcase(int(uid), raw=True)
+            showcase = self._parse_resilient(client, payload)
+
+            unknown = _unresolved_ids(showcase)
+            if unknown:
+                for char_id in unknown:
+                    logger.warning("[ENKA] Unknown character ID: %s", char_id)
+                # Most likely cause: a character released after our metadata was written.
+                if await refresher.force_refresh(
+                    client, reason=f"unresolved character id(s) {', '.join(unknown)}"
+                ):
+                    showcase = self._parse_resilient(client, payload)
+                    still_unknown = _unresolved_ids(showcase)
+                    resolved = [i for i in unknown if i not in still_unknown]
+                    if resolved:
+                        logger.info(
+                            "[ENKA] Metadata refresh resolved character ID(s): %s",
+                            ", ".join(resolved),
+                        )
+                    if still_unknown:
+                        # Upstream hasn't published them yet; the metadata resolver gets a
+                        # turn later, and the card is rendered either way.
+                        logger.warning(
+                            "[ENKA] Still unresolved after refresh: %s — falling back to "
+                            "dynamic metadata resolution",
+                            ", ".join(still_unknown),
+                        )
+            return showcase
+        except BotError:
+            raise  # already a domain error — don't re-map it
         except Exception as exc:  # noqa: BLE001 - normalize any library error
             self._raise_mapped(exc)
+        finally:
+            try:
+                await client.close()
+            except Exception:  # noqa: BLE001 - closing must never mask the real error
+                pass
+
+    @staticmethod
+    async def _start_client(client: Any, enka_module: Any, language: str) -> None:
+        """Start the library client, falling back to English if the language has no text map.
+
+        Upstream text maps don't carry every language enka.py declares (Chinese is missing
+        from the asset repo, for instance). Constructing the text map for such a language
+        raises, which would otherwise turn into a blanket "API unavailable" for those users.
+        """
+        try:
+            await client.start()
+        except Exception as exc:  # noqa: BLE001
+            if type(exc).__name__ != "AssetKeyError":
+                raise
+            logger.warning(
+                "[ENKA] No upstream text map for language %r (%s) — using English", language, exc
+            )
+            try:
+                client.lang = enka_module.gi.Language.ENGLISH
+            except Exception:  # noqa: BLE001 - nothing more we can do; surface the original
+                raise exc from None
+
+    @staticmethod
+    def _parse_resilient(client: Any, payload: dict[str, Any]) -> Any:
+        """Parse a raw showcase payload, isolating characters that fail to parse.
+
+        ``parse_showcase`` post-processes every character in one pass, so a single unparsable
+        one (a new artifact set missing from the local set list, an unrecognised quality
+        type) discards the entire showcase. On failure we retry character-by-character and
+        keep everyone who parses.
+        """
+        try:
+            return client.parse_showcase(payload)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[ENKA] Bulk parse failed (%s: %s) — retrying per character",
+                type(exc).__name__, exc,
+            )
+
+        raw_chars = payload.get("avatarInfoList") or []
+        base = {k: v for k, v in payload.items() if k != "avatarInfoList"}
+        showcase = None
+        kept: list[Any] = []
+        for raw_char in raw_chars:
+            try:
+                parsed = client.parse_showcase({**base, "avatarInfoList": [raw_char]})
+            except Exception as exc:  # noqa: BLE001 - drop just this character
+                logger.warning(
+                    "[ENKA] Dropping unparsable character %s: %s",
+                    raw_char.get("avatarId") if isinstance(raw_char, dict) else "?", exc,
+                )
+                continue
+            showcase = showcase or parsed
+            kept.extend(parsed.characters)
+        if showcase is None:
+            # Even the player block wouldn't parse — this is a genuine upstream problem.
+            raise ApiUnavailable("Enka showcase payload could not be parsed")
+        showcase.characters = kept
+        return showcase
+
+    async def _enrich_unresolved(self, showcase: Showcase, language: str) -> None:
+        """Fill in name/element/rarity/art for characters the library couldn't resolve.
+
+        This is the last step of the resolution chain: the library's metadata didn't cover
+        the character (even after a refresh), so we consult the upstream metadata directly.
+        A character is *always* left displayable — worst case under its numeric id — because
+        a missing name must never remove a character the player actually showcases.
+        """
+        pending = [c for c in showcase.characters if _is_unresolved(c)]
+        if not pending:
+            return
+
+        resolver = get_metadata_resolver()
+        for character in pending:
+            meta: CharacterMeta | None = None
+            try:
+                meta = await resolver.resolve(character.id, language)
+            except Exception as exc:  # noqa: BLE001 - resolution is best-effort
+                logger.warning("[ENKA] Metadata resolution failed for %s: %s", character.id, exc)
+            if meta is not None and meta.name:
+                _apply_meta(character, meta)
+                logger.info(
+                    "[ENKA] Resolved character ID %s -> %s (via %s)",
+                    character.id, character.name, meta.source,
+                )
+            else:
+                # Nothing upstream knows this id yet. Show the build under its id rather
+                # than hiding a character the player is showcasing.
+                character.name = placeholder_name(character.id)
+                logger.warning(
+                    "[ENKA] Unknown character ID: %s — no metadata source resolved it; "
+                    "displaying build data without a name",
+                    character.id,
+                )
+            await self._resolve_pending_names(character, resolver, language)
+
+    @staticmethod
+    async def _resolve_pending_names(character: Character, resolver: Any, language: str) -> None:
+        """Translate leftover text-map hashes on an unresolved character's gear.
+
+        When the library skips a character it also skips its weapon and artifacts, leaving
+        their names as bare hash strings. Resolving them keeps the weapon and artifact
+        panels readable instead of showing digits.
+        """
+        try:
+            if character.weapon is not None and _looks_like_hash(character.weapon.name):
+                text = await resolver.resolve_text(character.weapon.name, language)
+                if text:
+                    character.weapon.name = text
+            for artifact in character.artifacts:
+                if _looks_like_hash(artifact.set_name):
+                    text = await resolver.resolve_text(artifact.set_name, language)
+                    if text:
+                        artifact.set_name = text
+        except Exception as exc:  # noqa: BLE001 - cosmetic; never break the card
+            logger.debug("Could not resolve gear names for %s: %s", character.id, exc)
 
     @staticmethod
     def _resolve_language(enka_module: Any, language: str) -> Any:
@@ -159,10 +349,13 @@ class EnkaClient:
         stats = self._map_stats(_get(rc, "stats", default=None))
         # The Enka icon object exposes full CDN URLs: gacha (splash), front, circle, side.
         icon_obj = _get(rc, "icon")
+        # An empty name means the library had no metadata for this id (it post-processes
+        # nothing and returns early). Left blank on purpose so ``_enrich_unresolved`` can
+        # detect it and resolve the character dynamically instead of showing a bare "?".
         return Character(
             id=str(_get(rc, "id", "avatar_id", default="")),
-            name=str(_get(rc, "name", default="?") or "?"),
-            element=_opt_str(_get(rc, "element")),
+            name=str(_get(rc, "name", default="") or "").strip(),
+            element=_element_name(_get(rc, "element")),
             rarity=_opt_int(_get(rc, "rarity")),
             level=int(_num(_get(rc, "level", default=1), 1)),
             ascension=int(_num(_get(rc, "ascension", default=0))),
@@ -384,6 +577,40 @@ class EnkaClient:
         return None
 
 
+def _is_unresolved(character: Character) -> bool:
+    """True when the library produced no name for a character (metadata didn't cover it)."""
+    return not (character.name or "").strip()
+
+
+def _unresolved_ids(showcase: Any) -> list[str]:
+    """Ids of characters the library left unresolved in a freshly parsed showcase.
+
+    Reads the *library's* objects (pre-mapping), where an unresolved character keeps the
+    empty-string name its model defaults to.
+    """
+    ids: list[str] = []
+    for character in getattr(showcase, "characters", None) or []:
+        if not str(getattr(character, "name", "") or "").strip():
+            ids.append(str(getattr(character, "id", "?")))
+    return ids
+
+
+def _apply_meta(character: Character, meta: CharacterMeta) -> None:
+    """Copy dynamically resolved metadata onto a character, without clobbering live data."""
+    character.name = meta.name or character.name
+    character.element = character.element or meta.element
+    character.rarity = character.rarity or meta.rarity
+    character.art = character.art or meta.art_url
+    character.icon = character.icon or (
+        meta.icon_url.rsplit("/", 1)[-1] if meta.icon_url else None
+    )
+
+
+def _looks_like_hash(value: str | None) -> bool:
+    """True for a bare text-map hash (all digits) left behind by skipped post-processing."""
+    return bool(value) and str(value).strip().isdigit()
+
+
 def _as_url(val: Any) -> str | None:
     """Return a full icon URL. Enka icon objects stringify to their CDN URL; strings pass through."""
     if val is None:
@@ -398,6 +625,20 @@ def _as_url(val: Any) -> str | None:
     return text if text.startswith("http") else None
 
 
+def _element_name(val: Any) -> str | None:
+    """Normalize an Enka element to a plain name, treating "no element" as absent.
+
+    An unresolved character keeps ``Element.NONE``, whose string form ("None") would
+    otherwise look like a real element and block the dynamic metadata fallback.
+    """
+    if val is None:
+        return None
+    name = str(getattr(val, "value", val))
+    if name in ("None", "Element.NONE", ""):
+        return None
+    return name
+
+
 def _weapon_type(val: Any) -> str | None:
     """Normalize an Enka weapon type (e.g. 'WEAPON_SWORD_ONE_HAND'/'ITEM_WEAPON') to a label."""
     if val is None:
@@ -410,14 +651,31 @@ def _weapon_type(val: Any) -> str | None:
 
 
 def _icon_url(icon_obj: Any, *attrs: str) -> str | None:
-    """Return the first present URL attribute (e.g. gacha/front/circle) of an Enka Icon."""
+    """Return the first usable URL attribute (e.g. gacha/front/circle) of an Enka Icon.
+
+    Enka's ``Icon`` builds its URLs by string substitution on the side-icon path, so an
+    *empty* path (which is what an unresolved character gets) still yields a syntactically
+    valid but meaningless URL like ``https://enka.network/ui/.png``. Those are rejected here
+    so the artwork layer never tries to download a guaranteed 404.
+    """
     if icon_obj is None:
+        return None
+    # Every variant is derived from the side-icon path, so an empty path invalidates all of
+    # them at once — including the ones substitution leaves looking plausible ('_Circle.png').
+    base = getattr(icon_obj, "side_icon_ui_path", None)
+    if isinstance(base, str) and not base.strip():
         return None
     for attr in attrs:
         val = getattr(icon_obj, attr, None)
-        if isinstance(val, str) and val:
+        if isinstance(val, str) and val and _has_filename(val):
             return val
     return None
+
+
+def _has_filename(url: str) -> bool:
+    """True when a URL's last path segment has a non-empty stem (i.e. isn't just '.png')."""
+    stem = url.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    return bool(stem)
 
 
 def _opt_int(val: Any) -> int | None:

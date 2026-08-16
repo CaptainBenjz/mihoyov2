@@ -10,6 +10,9 @@ data/*.sqlite3
 data/local_store.json
 data/*.tmp
 
+# Character metadata snapshot (runtime cache of upstream Enka data, refreshed on a TTL)
+data/character_meta.json
+
 # enka library runtime asset cache (downloaded at runtime)
 .enka_py/
 

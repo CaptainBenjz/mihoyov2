@@ -127,12 +127,21 @@ def _remember_state(context: ContextTypes.DEFAULT_TYPE, uid: str, page: int, cha
 @guard
 @with_action(ChatAction.UPLOAD_PHOTO)
 async def my_characters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler for **both** ``/mycharacters`` and its ``/myc`` alias.
+
+    The two commands are registered against this single function (see
+    :func:`bot.main._register_handlers`), so there is exactly one implementation, one data
+    pipeline and one output format — ``/myc`` cannot drift from ``/mycharacters``.
+    """
     app = get_app(context)
     lang = await resolve_language(update, context)
     tg_id = user_id_of(update)
     if tg_id is None:
         return
+    # require_uid raises AccountNotLinked (handled by @guard) when no UID is linked, and
+    # InvalidUID for a malformed stored value — the two are reported differently.
     uid = await app.account_service.require_uid(tg_id)
+    logger.info("[MYCHARACTERS] UID: %s", uid)
     await _open_showcase(update, app, uid, viewer_uid=uid, owner=tg_id, lang=lang)
 
 
@@ -225,7 +234,7 @@ async def _show_character(app: AppContext, context, query, cb, lang: str) -> Non
         await _try_alert(query, t("error.character_not_found", lang))
         return
 
-    caption = _build_caption(character, showcase.player)
+    caption = _build_caption(character, showcase.player, lang)
     back_kb = InlineKeyboardMarkup(
         [[InlineKeyboardButton(
             t("common.back", lang),
@@ -345,21 +354,33 @@ async def _safe_edit(coro) -> None:
         logger.debug("edit failed: %s", exc)
 
 
-def _build_caption(character: Character, player: PlayerInfo | None) -> str:
-    """Build the exact profile-card caption; missing values become '--'."""
+def _build_caption(character: Character, player: PlayerInfo | None, lang: str = "en") -> str:
+    """Build the profile-card caption.
+
+    Akasha ranks only the builds it has a damage calculation for, so a character can be fully
+    resolved by Enka and still have no placement — a newly released one always will, until
+    akasha.cv adds it. That state is shown as an explicit "not available" rather than as a
+    fabricated ``#--`` / ``--%``, which read like a real (zero) result. The layout, emoji and
+    ordering are unchanged.
+    """
     r = character.ranking
-    rank = f"{r.rank:,}" if (r and r.rank is not None) else "--"
-    top = f"{r.top_percent:.1f}" if (r and r.top_percent is not None) else "--"
-    category = r.calculation_name if (r and r.calculation_name) else "--"
-    name = html.escape(character.name or "--")
+    unavailable = t("characters.unavailable", lang)
+    # When a value exists the line reads exactly as it always did ("Rank: #2,147",
+    # "Top 0.8%"); only the missing case changes, dropping the now-meaningless "#" and "%".
+    rank_line = f"Rank: #{r.rank:,}" if (r and r.rank is not None) else f"Rank: {unavailable}"
+    top_line = (
+        f"Top {r.top_percent:.1f}%" if (r and r.top_percent is not None) else f"Top: {unavailable}"
+    )
+    category = r.calculation_name if (r and r.calculation_name) else unavailable
+    name = html.escape(character.name or unavailable)
     nickname = html.escape(player.nickname if (player and player.nickname) else "--")
     category = html.escape(category)
     return (
         f'<tg-emoji emoji-id="4911241630633165627">⚔️</tg-emoji> {name}\n\n'
         f'<tg-emoji emoji-id="5255835635704408236">👤</tg-emoji> {nickname}\n\n'
         f"Akasha.cv Overview\n\n"
-        f'<tg-emoji emoji-id="5413566144986503832">🏆</tg-emoji> Rank: #{rank}\n\n'
-        f'<tg-emoji emoji-id="4958489311726011319">✨</tg-emoji> Top {top}%\n\n'
+        f'<tg-emoji emoji-id="5413566144986503832">🏆</tg-emoji> {rank_line}\n\n'
+        f'<tg-emoji emoji-id="4958489311726011319">✨</tg-emoji> {top_line}\n\n'
         f'<tg-emoji emoji-id="5818800359518247381">🏅</tg-emoji> Category: {category}'
     )
 

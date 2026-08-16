@@ -66,6 +66,18 @@ class Settings(BaseSettings):
     enka_cache_ttl: int = 300
     akasha_cache_ttl: int = 600
 
+    # Game-metadata freshness. enka.py downloads its character/text metadata once and then
+    # never refreshes it, which is what made newly released characters unresolvable. These
+    # bound how long that metadata may go without an update, so a new character starts
+    # working on its own once upstream publishes it — no redeploy, no code change.
+    enka_assets_ttl: int = 21_600            # refresh enka.py's on-disk metadata every 6h
+    enka_assets_force_cooldown: int = 900    # min gap between refreshes forced by an unknown id
+    enka_metadata_ttl: int = 21_600          # lifetime of the upstream metadata used as fallback
+
+    # Local snapshot of resolved character metadata (fallback when upstream is unreachable).
+    # Relative paths resolve under the repo root.
+    character_meta_path: str = "data/character_meta.json"
+
     # Assets
     assets_dir: str = "assets"
 
@@ -109,6 +121,12 @@ class Settings(BaseSettings):
     def local_store_file(self) -> Path:
         """Absolute path to the local fallback store file."""
         p = Path(self.local_store_path)
+        return p if p.is_absolute() else (ROOT_DIR / p)
+
+    @property
+    def character_meta_file(self) -> Path:
+        """Absolute path to the local character-metadata snapshot."""
+        p = Path(self.character_meta_path)
         return p if p.is_absolute() else (ROOT_DIR / p)
 
 

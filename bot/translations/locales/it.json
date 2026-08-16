@@ -27,6 +27,7 @@
   "characters.title_other": "🎴 <b>Vetrina dell'UID {uid}</b>\nScegli un personaggio e ti mostrerò la sua build.",
   "characters.empty": "La tua vetrina sembra vuota, Viaggiatore. Aggiungi qualche personaggio nel gioco e li recupererò per te.",
   "characters.page": "Pagina {current}/{total}",
+  "characters.unavailable": "Non disponibile",
 
   "inspect.usage": "Dimmi quale vetrina ispezionare, così:\n<code>/inspect &lt;UID&gt;</code>\nAd esempio: <code>/inspect 901211014</code>",
 
