@@ -61,8 +61,11 @@ def theme_for(element: str | None) -> dict[str, tuple[int, int, int]]:
 PORTRAIT_BOX = (158, 116, 344, 596)
 
 # --- Header ---------------------------------------------------------------------------
-NAME_POS = (118, 34)             # top-left anchor, big
-NAME_MAX_WIDTH = 250
+# Measured against the approved reference card: its name glyphs occupy y=33..63 (cap height
+# ~30px) and run out to x=377 — wider than the 250px cap this used to impose. NAME_POS is a
+# text top-left, which for this font sits ~17px above the cap line.
+NAME_POS = (118, 17)             # top-left anchor, big
+NAME_MAX_WIDTH = 262
 RARITY_STARS_POS = (120, 74)     # header rarity stars (top-left)
 TITLE_POS = (120, 96)
 
@@ -75,8 +78,12 @@ FRIENDSHIP_POS = (120, 560)      # value drawn after the "Friendship" pill label
 WEAPON_ICON_BOX = (445, 168, 78)          # (cx, cy, diameter)
 TALENT_ICON_BOXES = [(428, 565, 44), (492, 565, 44), (557, 565, 44)]
 SET_ICON_BOX = (774, 500, 30)             # (cx, cy, diameter) — square slot, top-right of panel
+# Measured from the reference: icon centres sit at cx=935 and cy 100/216/333/445/560 (card
+# pitch exactly 115 — the old 113 drifted up to 12px off on the first card and never
+# re-converged). Measured centres (100/216/333/445/560) carry a couple of px of blob-detection
+# jitter, so the grid is regularised to the exact 115 pitch its endpoints imply.
 ARTIFACT_ICON_BOXES = [                    # (cx, cy, diameter) per card
-    (930, 112, 76), (930, 225, 76), (930, 338, 76), (930, 451, 76), (930, 564, 76),
+    (935, 100, 66), (935, 215, 66), (935, 330, 66), (935, 445, 66), (935, 560, 66),
 ]
 
 # --- Top level/constellation/rarity bar ----------------------------------------------
@@ -89,7 +96,10 @@ WEAPON_ICON_CENTER = (445, 168)
 WEAPON_ICON_RADIUS = 42
 WEAPON_NAME_POS = (525, 138)
 WEAPON_NAME_MAX_WIDTH = 300
-WEAPON_TYPE_POS = (560, 176)     # after the type icon box
+# The two boxes hold the weapon's base ATK and its secondary stat (measured: the glyphs sit
+# at x=565 and x=672, both centred on y=174, just right of each box's baked icon).
+WEAPON_MAIN_STAT_POS = (565, 174)
+WEAPON_SUB_STAT_POS = (672, 174)
 WEAPON_LEVEL_POS = (515, 213)    # left anchor for "Lv. 90" (baked "Lv. /" masked first)
 WEAPON_REFINE_POS = (818, 177)   # centered in the dark "R" box (e.g. "R5")
 
@@ -115,13 +125,28 @@ SET_2PC_POS = (662, 552)
 SET_4PC_POS = (662, 598)
 
 # --- Artifacts (5 cards) --------------------------------------------------------------
-# Per card: main-stat text position, rarity-stars position, and 4 substat text positions.
-ARTIFACT_CARD_TOP = [68, 181, 294, 407, 520]
-ARTIFACT_MAIN_STAT_POS = (985, 118)     # relative-to-card handled by adding card top offset
+# Every value below is measured off the approved reference card rather than estimated.
+# Card pitch is ~115px (substat row 1 lands at y=71/187/302/416/531), so the previous
+# 113px pitch accumulated an 8px error by the fifth card.
+ARTIFACT_CARD_TOP = [68, 183, 298, 413, 528]
+ARTIFACT_CARD_REF_TOP = 68              # the y the offsets below were measured against
+
+# The main stat is TWO lines in the reference — name at y=100..107, value at y=120..130 —
+# not the single "HP 4780" line this used to draw. Positions are row centres (anchor "lm").
+ARTIFACT_MAIN_NAME_POS = (988, 104)
+ARTIFACT_MAIN_VALUE_POS = (988, 125)
+ARTIFACT_MAIN_MAX_WIDTH = 108
+
 ARTIFACT_STARS_POS = (900, 150)
-ARTIFACT_SUBSTAT_X = 1105
-ARTIFACT_SUBSTAT_YS = [78, 100, 122, 144]
-ARTIFACT_CARD_REF_TOP = 68              # the y the offsets above were measured against
+
+# Substats are two LEFT-aligned columns, not one run-on string. Proven left-aligned rather
+# than right-aligned because the short "+72" row starts at the same x=1208 as "+9.7%" and
+# simply ends earlier (1227 vs 1241).
+ARTIFACT_SUBSTAT_X = 1105               # substat name column
+ARTIFACT_SUBSTAT_VALUE_X = 1208         # substat value column
+ARTIFACT_SUBSTAT_NAME_MAX_WIDTH = 98    # keeps names clear of the value column
+ARTIFACT_SUBSTAT_VALUE_MAX_WIDTH = 56
+ARTIFACT_SUBSTAT_YS = [76, 98, 119, 141]  # row centres (anchor "lm")
 
 # --- Bottom summary bar (7 values under labels) ---------------------------------------
 BOTTOM_BAR_Y = 678

@@ -37,6 +37,43 @@ _ELEM_DMG_PROP = {
     "DENDRO": "FIGHT_PROP_GRASS_ADD_HURT",
 }
 
+# Ascension tier -> max level, matching the game's progression.
+_ASCENSION_MAX_LEVEL = {0: 20, 1: 40, 2: 50, 3: 60, 4: 70, 5: 80, 6: 90}
+
+# Weapon secondary stats that are percentages (everything except flat ATK/HP/DEF/EM).
+_FLAT_SUB_STATS = ("elemental mastery", "atk", "hp", "def")
+
+
+def _weapon_max_level(weapon) -> int:
+    """Max level for a weapon's ascension tier, falling back to its current level."""
+    return _ASCENSION_MAX_LEVEL.get(getattr(weapon, "ascension", None), weapon.level)
+
+
+def _weapon_sub_text(name: str | None, value: float) -> str:
+    """Format a weapon's secondary stat; percent unless it is one of the flat stats."""
+    label = (name or "").strip().lower()
+    is_flat = any(label == flat or label.endswith(f" {flat}") for flat in _FLAT_SUB_STATS)
+    return f"{value:,.0f}" if is_flat else f"{value:.1f}%"
+
+
+def _stat_value(stat, *, signed: bool) -> str:
+    """Format an artifact stat exactly as the reference card does.
+
+    Percentages get one decimal and a '%'; flat values are thousands-separated integers.
+    Substats carry a leading '+' (they are gains); a main stat does not.
+    """
+    value = getattr(stat, "value", None)
+    if value is None:
+        return "--"
+    if getattr(stat, "is_percent", False):
+        text = f"{value:.1f}%"
+    else:
+        text = f"{value:,.0f}"
+    return f"+{text}" if signed else text
+
+
+# The abyss/theater cards still draw on their own portrait-oriented canvas; the character
+# profile card uses the fixed template size in card_layout.CARD_SIZE.
 _CARD_SIZE = (900, 1200)
 _BG = (30, 31, 41, 255)
 _PANEL = (40, 42, 54, 255)
@@ -302,9 +339,11 @@ class PillowRenderer(Renderer):
         # Base canvas: the cached template (decoded once). Fallback handled in the helper.
         base = self._template_base()
 
-        # Element background tint across the whole card ("green character -> green card").
-        tint = Image.new("RGBA", card_layout.CARD_SIZE, (*theme["bg"], 60))
-        base.alpha_composite(tint)
+        # No full-card element tint. It used to wash the entire template in the element
+        # colour at alpha 60, which shifted the cream panels well off the approved design
+        # (measured against the reference: cream (239,231,220) came out as (222,188,178), a
+        # clear pink cast on a Pyro character). The element still drives the portrait glow
+        # and the accent colour below, which is where the reference actually uses it.
 
         # Portrait (glow backdrop + cover-fit art) into the oval frame.
         portrait = ctx.portrait if isinstance(ctx.portrait, Image.Image) else None
@@ -333,7 +372,6 @@ class PillowRenderer(Renderer):
         topbar = sample(500, 60)          # dark top-bar interior (not its lighter edge)
         setcream = sample(760, 522)       # set-bonus panel cream (right of "SET NAME")
         lvbox = sample(650, 213)          # weapon "Lv." box interior
-        rbox = (33, 26, 18)               # dark "R" box interior
         self._cream = cream               # reused by talent/artifact/set erases
 
         # -- header --
@@ -346,15 +384,17 @@ class PillowRenderer(Renderer):
         # -- weapon panel --
         mask((512, 128, 704, 160), wcream_top)    # WEAPON NAME
         mask((398, 215, 494, 239), wcream_bot)    # baked rarity stars under the icon
-        mask((630, 160, 760, 193), wcream_top)    # unused 2nd type box (removed entirely)
-        mask((801, 162, 835, 192), rbox)          # "R" box interior
+        # The second stat box is NOT unused — it holds the weapon's secondary stat, so its
+        # baked frame is kept and only the placeholder glyph inside it is cleared.
+        mask((668, 164, 758, 189), wcream_top)    # 2nd stat box interior
+        mask((806, 166, 832, 189), wcream_top)    # "R" box interior (cream, as in the reference)
         mask((508, 201, 700, 226), lvbox)         # baked "Lv. /"
         # -- set bonus: SET NAME (wide enough to also clear the leading 'S') --
         mask((608, 510, 762, 542), setcream)
         # -- artifacts: main stat, baked stars, substats per card --
         for i, top in enumerate(card_layout.ARTIFACT_CARD_TOP):
             dy = top - card_layout.ARTIFACT_CARD_REF_TOP
-            mask((968, 104 + dy, 1082, 134 + dy), cream)          # Main Stat
+            mask((968, 94 + dy, 1086, 136 + dy), cream)           # Main Stat (name + value lines)
             mask((896, 140 + dy, 968, 162 + dy), cream)           # baked rarity stars
             for sy in card_layout.ARTIFACT_SUBSTAT_YS:
                 mask((1096, sy - 10 + dy, 1262, sy + 12 + dy), cream)  # Substats
@@ -364,11 +404,15 @@ class PillowRenderer(Renderer):
             mask((tx - 16, ty - 13, tx + 16, ty + 11), talcream)
 
         # -- header --
+        # weight 600, not 800: the reference's name is a lighter display face, and 800 read
+        # as noticeably heavier than the approved card at the same cap height.
         self._draw_fit(draw, card_layout.NAME_POS, (c.name or "--").upper(),
-                       max_width=card_layout.NAME_MAX_WIDTH, size=40, weight=800, color=dark)
+                       max_width=card_layout.NAME_MAX_WIDTH, size=42, weight=600, color=dark)
         self._stars(draw, card_layout.RARITY_STARS_POS, c.rarity or 0, size=20)
-        title = ctx.player.nickname if ctx.player and ctx.player.nickname else "--"
-        self._draw_fit(draw, card_layout.TITLE_POS, title, max_width=230, size=18, color=(110, 96, 76))
+        # The template's "Title / Nickname" line is intentionally left blank: the card shows
+        # character names only. It previously drew the *player's* nickname here, which
+        # mislabelled the slot (it is a character field, not an account one). The baked
+        # placeholder is already erased by the mask above, so nothing is drawn.
 
         # -- top bar: level / constellation / rarity --
         draw.text(card_layout.LEVEL_VALUE_POS, self._fmt(c.level), font=self._pfont(22, 600),
@@ -385,16 +429,26 @@ class PillowRenderer(Renderer):
             self._paste_icon(base, ctx.icons, c.weapon.icon, card_layout.WEAPON_ICON_BOX,
                              fit=True, erase=wcream_bot)
             self._draw_fit(draw, card_layout.WEAPON_NAME_POS, c.weapon.name or "--",
-                           max_width=card_layout.WEAPON_NAME_MAX_WIDTH, size=22, weight=700, color=dark)
+                           max_width=card_layout.WEAPON_NAME_MAX_WIDTH, size=19, weight=600, color=dark)
             self._stars(draw, (card_layout.WEAPON_ICON_BOX[0], 226),
                         c.weapon.rarity or 0, size=13, anchor="mm")
-            if c.weapon.weapon_type:
-                draw.text(card_layout.WEAPON_TYPE_POS, c.weapon.weapon_type, font=self._pfont(16),
-                          fill=dark, anchor="lm")
-            draw.text(card_layout.WEAPON_LEVEL_POS, f"Lv. {c.weapon.level}", font=self._pfont(18),
-                      fill=dark, anchor="lm")
+            # The template's two boxes hold the weapon's STATS (base ATK, then its secondary
+            # stat) — that is what the reference shows. This used to print the weapon class
+            # ("Polearm") in the first box and leave the second empty, discarding both values.
+            if c.weapon.main_stat_value is not None:
+                draw.text(card_layout.WEAPON_MAIN_STAT_POS, f"{c.weapon.main_stat_value:,.0f}",
+                          font=self._pfont(17, 600), fill=dark, anchor="lm")
+            if c.weapon.sub_stat_value is not None:
+                draw.text(card_layout.WEAPON_SUB_STAT_POS,
+                          _weapon_sub_text(c.weapon.sub_stat_name, c.weapon.sub_stat_value),
+                          font=self._pfont(17, 600), fill=dark, anchor="lm")
+            # "Lv. 90 / 90" — the template bakes the separator, so both numbers are drawn.
+            draw.text(card_layout.WEAPON_LEVEL_POS,
+                      f"Lv. {c.weapon.level} / {_weapon_max_level(c.weapon)}",
+                      font=self._pfont(18), fill=dark, anchor="lm")
+            # Dark text on the cream box, matching the reference (was light-on-dark).
             draw.text(card_layout.WEAPON_REFINE_POS, f"R{c.weapon.refinement}",
-                      font=self._pfont(18, 700), fill=(240, 232, 214), anchor="mm")
+                      font=self._pfont(17, 700), fill=dark, anchor="mm")
 
         # -- talent icons (erase the baked emblem first, then the transparent PNG icon) --
         for box, tal in zip(card_layout.TALENT_ICON_BOXES, (c.talents or [])[:3]):
@@ -430,16 +484,27 @@ class PillowRenderer(Renderer):
             self._paste_icon(base, ctx.icons, art.icon, card_layout.ARTIFACT_ICON_BOXES[i],
                              fit=True, erase=cream)
             if art.main_stat:
-                mtext = f"{art.main_stat.name} {art.main_stat.value:g}"
-                self._draw_fit(draw, (card_layout.ARTIFACT_MAIN_STAT_POS[0],
-                                      card_layout.ARTIFACT_MAIN_STAT_POS[1] + dy),
-                               mtext, max_width=110, size=15, weight=600, color=dark)
+                # Two lines, as in the reference: stat name above, formatted value below.
+                nx, ny = card_layout.ARTIFACT_MAIN_NAME_POS
+                vx, vy = card_layout.ARTIFACT_MAIN_VALUE_POS
+                self._draw_fit(draw, (nx, ny + dy), art.main_stat.name,
+                               max_width=card_layout.ARTIFACT_MAIN_MAX_WIDTH,
+                               size=13, color=(90, 78, 62), anchor="lm")
+                self._draw_fit(draw, (vx, vy + dy), _stat_value(art.main_stat, signed=False),
+                               max_width=card_layout.ARTIFACT_MAIN_MAX_WIDTH,
+                               size=17, weight=600, color=dark, anchor="lm")
             self._stars(draw, (card_layout.ARTIFACT_STARS_POS[0], card_layout.ARTIFACT_STARS_POS[1] + dy),
                         art.rarity or 5, size=13)
             for sub, sy in zip(art.sub_stats[:4], card_layout.ARTIFACT_SUBSTAT_YS):
-                stext = f"{sub.name} {sub.value:g}"
-                self._draw_fit(draw, (card_layout.ARTIFACT_SUBSTAT_X, sy + dy), stext,
-                               max_width=135, size=13, color=(90, 78, 62))
+                # Name and value are separate left-aligned columns, so a long name can never
+                # push its value out of line with the rows above and below it.
+                self._draw_fit(draw, (card_layout.ARTIFACT_SUBSTAT_X, sy + dy), sub.name,
+                               max_width=card_layout.ARTIFACT_SUBSTAT_NAME_MAX_WIDTH,
+                               size=13, color=(90, 78, 62), anchor="lm")
+                self._draw_fit(draw, (card_layout.ARTIFACT_SUBSTAT_VALUE_X, sy + dy),
+                               _stat_value(sub, signed=True),
+                               max_width=card_layout.ARTIFACT_SUBSTAT_VALUE_MAX_WIDTH,
+                               size=13, weight=600, color=dark, anchor="lm")
 
         # -- set bonus (dominant set from equipped artifacts) + set icon --
         set_name, set_count, set_icon = self._dominant_set(c.artifacts or [])
