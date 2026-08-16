@@ -27,6 +27,7 @@
   "characters.title_other": "🎴 <b>UID {uid} のショーケース</b>\nキャラクターを選んでください。ビルドをお見せします。",
   "characters.empty": "ショーケースが空のようです、旅人さん。ゲーム内でキャラクターを追加すれば、私が取ってきます。",
   "characters.page": "ページ {current}/{total}",
+  "characters.unavailable": "データなし",
 
   "inspect.usage": "どのショーケースを見るか、このように教えてください：\n<code>/inspect &lt;UID&gt;</code>\n例: <code>/inspect 901211014</code>",
 

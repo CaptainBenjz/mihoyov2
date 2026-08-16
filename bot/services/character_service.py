@@ -11,6 +11,7 @@ import asyncio
 import time
 
 from bot.api.akasha_client import AkashaClient
+from bot.api.character_metadata import is_placeholder_name
 from bot.api.enka_client import EnkaClient
 from bot.cache.redis_cache import RedisCache
 from bot.models.character import Character
@@ -26,6 +27,7 @@ perf_logger = get_logger("bot.perf")
 
 _CACHE_NS = "showcase"
 _MEM_MAX = 64  # showcases kept in the in-process cache
+_UNRESOLVED_TTL = 60  # seconds to cache a showcase that still has an unnamed character
 
 
 class CharacterService:
@@ -100,8 +102,27 @@ class CharacterService:
         self._mem_put(cache_key, showcase)
 
         async with atimed("showcase.cache_write"):
-            await self._cache.set_json(_CACHE_NS, cache_key, showcase_to_dict(showcase), ttl=self._ttl)
+            await self._cache.set_json(
+                _CACHE_NS, cache_key, showcase_to_dict(showcase), ttl=self._cache_ttl_for(showcase)
+            )
         return showcase
+
+    def _cache_ttl_for(self, showcase: Showcase) -> int:
+        """TTL for caching a showcase — shortened while any character is unnamed.
+
+        A character whose metadata upstream hasn't published yet resolves to a placeholder
+        name. Caching that for the full TTL would keep showing the placeholder long after
+        upstream caught up, so those results are held only briefly.
+        """
+        if any(is_placeholder_name(c.name) for c in showcase.characters):
+            ttl = min(self._ttl, _UNRESOLVED_TTL)
+            logger.info(
+                "[MYCHARACTERS] Showcase contains unresolved character(s); caching for %ds "
+                "instead of %ds so newly published metadata is picked up promptly",
+                ttl, self._ttl,
+            )
+            return ttl
+        return self._ttl
 
     async def _fetch_concurrently(
         self, uid: str, language: str
@@ -118,11 +139,14 @@ class CharacterService:
 
         async def _akasha() -> dict[str, Ranking]:
             async with atimed("showcase.akasha_fetch"):
+                logger.info("[AKASHA] Fetching ranking data for UID %s", uid)
                 try:
-                    return await self._akasha.fetch_rankings(uid)
+                    rankings = await self._akasha.fetch_rankings(uid)
                 except Exception as exc:  # noqa: BLE001 - rankings must never break the flow
-                    logger.info("Ranking enrichment skipped for %s: %s", uid, exc)
+                    logger.info("[AKASHA] Unavailable for UID %s: %s", uid, exc)
                     return {}
+                logger.info("[AKASHA] Rankings received for %d character(s)", len(rankings))
+                return rankings
 
         showcase_res, rankings_res = await asyncio.gather(
             _enka(), _akasha(), return_exceptions=True
@@ -135,10 +159,23 @@ class CharacterService:
 
     @staticmethod
     def _attach_rankings(showcase: Showcase, rankings: dict[str, Ranking]) -> None:
+        """Attach Akasha rankings where they exist.
+
+        Enka availability and Akasha availability are independent: Akasha only ranks builds
+        it has a damage calculation for, so a character Enka resolves perfectly well may
+        legitimately have no ranking — especially a newly released one. Those characters keep
+        ``ranking is None`` and the card renders an explicit "unavailable" state rather than
+        inventing a placement.
+        """
         for character in showcase.characters:
             ranking = rankings.get(character.id)
             if ranking is not None and ranking.available:
                 character.ranking = ranking
+            else:
+                logger.info(
+                    "[AKASHA] Ranking unavailable for character: %s (id %s)",
+                    character.name, character.id,
+                )
 
     async def get_character(self, uid: str, char_id: str, language: str = "en") -> Character:
         """Return a single character from the (cached) showcase."""

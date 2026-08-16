@@ -27,6 +27,7 @@
   "characters.title_other": "🎴 <b>Showcase for UID {uid}</b>\nPick a character and I'll show you its build.",
   "characters.empty": "Your showcase looks empty, Traveler. Add a few characters to your in-game showcase and I'll fetch them for you.",
   "characters.page": "Page {current}/{total}",
+  "characters.unavailable": "Not available",
 
   "inspect.usage": "Tell me whose showcase to inspect, like this:\n<code>/inspect &lt;UID&gt;</code>\nFor example: <code>/inspect 901211014</code>",
 

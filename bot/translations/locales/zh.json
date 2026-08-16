@@ -27,6 +27,7 @@
   "characters.title_other": "🎴 <b>UID {uid} 的展示柜</b>\n选择一个角色，我来为你展示配装。",
   "characters.empty": "你的展示柜似乎是空的，旅行者。在游戏中添加几个角色，我就能为你取来。",
   "characters.page": "第 {current}/{total} 页",
+  "characters.unavailable": "暂无数据",
 
   "inspect.usage": "像这样告诉我要查看谁的展示柜：\n<code>/inspect &lt;UID&gt;</code>\n例如：<code>/inspect 901211014</code>",
 

@@ -55,24 +55,35 @@ class ArtworkService:
                 pass
         self._session = None
 
+    @staticmethod
+    def _stem(key: str | None) -> str:
+        """Filename stem of an art key/URL ('' when the key carries no filename)."""
+        if not key:
+            return ""
+        return key.rsplit("/", 1)[-1].removesuffix(".png").removesuffix(".jpg")
+
     def _candidate_urls(self, character: Character) -> list[str]:
-        """Prefer full splash art, then the front portrait icon."""
+        """Prefer full splash art, then the front portrait icon.
+
+        Keys without a filename are skipped: they would produce a URL like
+        ``https://enka.network/ui/.png`` that is guaranteed to 404 and would waste a request
+        on every render.
+        """
         urls: list[str] = []
-        icon = getattr(character, "_icon_obj", None)
         # character.art / character.icon are reduced to filename keys in the mapper; we also
         # accept a full URL if present. Reconstruct Enka CDN URLs from the stored key.
         for key in (character.art, character.icon):
-            if not key:
+            if not key or not self._stem(key):
                 continue
-            if key.startswith("http"):
-                urls.append(key)
-            else:
-                urls.append(f"https://enka.network/ui/{key}")
+            urls.append(key if key.startswith("http") else f"https://enka.network/ui/{key}")
         return urls
 
     def _cache_file(self, character: Character) -> Path:
-        stem = (character.art or character.icon or character.id or "unknown").rsplit("/", 1)[-1]
-        stem = stem.replace(".png", "").replace(".jpg", "")
+        stem = (
+            self._stem(character.art)
+            or self._stem(character.icon)
+            or (character.id or "unknown")
+        )
         return self._cache_dir / f"{stem}.png"
 
     async def get_portrait(self, character: Character) -> Image.Image | None:
@@ -93,7 +104,12 @@ class ArtworkService:
                 except Exception as exc:  # noqa: BLE001 - caching is non-critical
                     logger.debug("Could not cache portrait %s: %s", cache_file, exc)
                 return img
-        logger.info("No artwork available for character %s", character.name)
+        # Artwork is decoration, not identity: the card still renders (empty portrait frame)
+        # with the character's name, stats, weapon and artifacts intact.
+        logger.info(
+            "No artwork available for character %s (id %s) — rendering without a portrait",
+            character.name, character.id,
+        )
         return None
 
     async def get_image(self, url: str | None) -> Image.Image | None:

@@ -65,12 +65,21 @@ def test_caption_with_ranking():
     assert "tg-emoji" in cap  # custom emoji present
 
 
-def test_caption_missing_values_become_dashes():
+def test_caption_marks_missing_ranking_unavailable():
+    """No Akasha data -> an explicit unavailable state, not a fabricated '#--' placement.
+
+    A character Enka resolves perfectly well can legitimately have no Akasha ranking (every
+    newly released character does), so the card must say so rather than imply a real result.
+    """
     ch = _character(ranking=None)
     cap = _build_caption(ch, PlayerInfo(uid="1", nickname=""))
-    assert "Rank: #--" in cap
-    assert "Top --%" in cap
-    assert "Category: --" in cap
+    assert "Rank: Not available" in cap
+    assert "Top: Not available" in cap
+    assert "Category: Not available" in cap
+    # The misleading placeholders are gone.
+    assert "#--" not in cap and "--%" not in cap
+    # The character itself is still fully identified.
+    assert "Hu Tao" in cap
     # And it degrades to plain emoji cleanly.
     assert "tg-emoji" not in strip_custom_emoji(cap)
 
