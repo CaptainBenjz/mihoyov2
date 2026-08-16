@@ -36,6 +36,11 @@ GOLD = (214, 168, 74)
 
 # Panel background colours used to erase the template's baked placeholder glyphs before
 # live values are drawn. Sampled from the template itself at render time.
+def _sample(img, x: int, y: int) -> tuple[int, int, int]:
+    """Colour of one template pixel, in output coordinates."""
+    return img.getpixel((x, y))[:3]
+
+
 _SAMPLE_POINTS = {
     "cream": (1000, 92),
     "weapon_top": (690, 150),
@@ -116,6 +121,16 @@ class CharacterCardRenderer:
         box(806, 166, 832, 189, c["weapon_top"])   # refinement box
         box(508, 201, 700, 226, c["level_box"])    # "Lv. /"
         box(608, 510, 762, 542, c["set"])          # set name
+        box(428, 439, 560, 459, c["cream"])        # baked "Pyro DMG Bonus" (stats row)
+
+        # Bottom summary bar: clear each baked "/" placeholder and the element label, using
+        # the bar's own interior colour sampled next to them.
+        bar = _sample(draw._image, int(300 * scale), int(664 * scale))
+        box(774, 650, 870, 670, bar)               # baked "PYRO DMG BONUS"
+        for key in ("crit-rate", "crit-dmg", "er", "atk", "def", "em", "elemental-bonus"):
+            slot = self._layout.text_slot(f"summary-{key}")
+            if slot is not None:
+                box(slot.x - 26, slot.y - 11, slot.x + 74, slot.y + 11, bar)
 
         for slot_name in ("flower", "plume", "sands", "goblet", "circlet"):
             main = self._layout.text_slot(f"artifact-{slot_name}-main-stat")
@@ -192,6 +207,9 @@ class CharacterCardRenderer:
     def _draw_stats(self, draw, data, scale) -> None:
         for key, value in data.stats.rows():
             self._text(draw, f"stat-{key}", value, INK_DARK, scale)
+        # The element row's label follows the character, not the template.
+        self._text(draw, "stat-elemental-bonus-label",
+                   data.stats.elemental_bonus_name, INK_BODY, scale)
 
     def _draw_talents(self, base, draw, data, scale) -> None:
         for name, talent in data.talents.items():
@@ -222,6 +240,8 @@ class CharacterCardRenderer:
     def _draw_summary(self, draw, data, scale) -> None:
         for key, value in data.stats.summary_rows():
             self._text(draw, f"summary-{key}", value, INK_LIGHT, scale)
+        self._text(draw, "summary-elemental-bonus-label",
+                   data.stats.elemental_bonus_name.upper(), (206, 186, 148), scale)
 
     # -- debug -------------------------------------------------------------
     def _draw_debug_overlay(self, draw, scale) -> None:

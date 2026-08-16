@@ -54,6 +54,9 @@
       <text id="stat-crit-rate" x="825" y="379" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
       <text id="stat-crit-dmg" x="825" y="402" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
       <text id="stat-energy-recharge" x="825" y="425" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
+      <!-- The template bakes "Pyro DMG Bonus"; these slots draw the character's own
+           element over it so a Cryo character never reads as Pyro. -->
+      <text id="stat-elemental-bonus-label" x="430" y="449" data-anchor="start" data-size="13" data-max-width="150" data-min-size="9" data-weight="400"/>
       <text id="stat-elemental-bonus" x="825" y="448" data-anchor="end" data-size="17" data-max-width="150" data-min-size="10" data-weight="600"/>
     </g>
 
@@ -153,6 +156,7 @@
       <text id="summary-atk" x="440" y="678" data-anchor="start" data-size="15" data-max-width="100" data-min-size="10" data-weight="600"/>
       <text id="summary-def" x="535" y="678" data-anchor="start" data-size="15" data-max-width="100" data-min-size="10" data-weight="600"/>
       <text id="summary-em" x="665" y="678" data-anchor="start" data-size="15" data-max-width="100" data-min-size="10" data-weight="600"/>
+      <text id="summary-elemental-bonus-label" x="778" y="660" data-anchor="start" data-size="10" data-max-width="88" data-min-size="7" data-weight="500"/>
       <text id="summary-elemental-bonus" x="808" y="678" data-anchor="start" data-size="15" data-max-width="100" data-min-size="10" data-weight="600"/>
     </g>
   </g>
