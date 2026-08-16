@@ -202,7 +202,21 @@ def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
             image=icons.get(art.icon),
         )
 
+    # The set shown is whichever set the most equipped pieces belong to.
+    counts: dict[str, int] = {}
+    set_icons: dict[str, str] = {}
+    for a in character.artifacts or []:
+        if a.set_name:
+            counts[a.set_name] = counts.get(a.set_name, 0) + 1
+            set_icons.setdefault(a.set_name, a.icon or "")
+    artifact_set = None
+    if counts:
+        best = max(counts, key=counts.get)
+        artifact_set = SetInfo(name=f"{best} ({counts[best]})",
+                               image=icons.get(set_icons.get(best)))
+
     return CardData(
+        artifact_set=artifact_set,
         character=CharacterInfo(
             id=character.id, name=character.name, element=character.element,
             rarity=character.rarity, level=character.level,

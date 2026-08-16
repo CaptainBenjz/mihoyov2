@@ -152,3 +152,77 @@ def test_text_fitter_shrinks_then_truncates():
     fitted, font = fit_text(draw, long_text, slot, font_for)
     assert draw.textlength(fitted, font=font) <= slot.max_width
     assert fitted.endswith("…"), "falls back to truncation once at min size"
+
+
+# --------------------------------------------------------------------------- production path
+async def test_production_render_path_uses_the_slot_renderer(monkeypatch):
+    """/mycharacters -> _render_card_png -> CharacterCardRenderer, at 1536x864.
+
+    Asserts the real production function, not the renderer in isolation.
+    """
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from bot.commands import characters
+    from bot.models.character import Character, CharacterStats
+    from bot.models.player import PlayerInfo
+
+    used = {"legacy": 0}
+
+    class _Artwork:
+        async def get_portrait(self, character):
+            return Image.new("RGBA", (2048, 1024), (10, 10, 10, 255))
+
+        async def get_images(self, urls):
+            return {}
+
+    class _Legacy:
+        def render_profile_card(self, ctx):
+            used["legacy"] += 1
+            return b"LEGACY"
+
+    app = SimpleNamespace(artwork_service=_Artwork(), renderer=_Legacy())
+    character = Character(id="10000096", name="Arlecchino", element="Fire", rarity=5,
+                          level=90, constellation=1, stats=CharacterStats(hp=20023))
+
+    png = await characters._render_card_png(app, character, PlayerInfo(uid="1"), "en")
+
+    assert used["legacy"] == 0, "the legacy renderer must not serve successful requests"
+    assert Image.open(__import__("io").BytesIO(png)).size == (1536, 864)
+
+
+async def test_production_render_falls_back_when_the_new_renderer_raises(monkeypatch, caplog):
+    """A rendering bug degrades to the old renderer loudly, never silently."""
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from bot.commands import characters
+    from bot.models.character import Character
+    from bot.models.player import PlayerInfo
+
+    class _Artwork:
+        async def get_portrait(self, character):
+            return Image.new("RGBA", (64, 64))
+
+        async def get_images(self, urls):
+            return {}
+
+    class _Legacy:
+        def render_profile_card(self, ctx):
+            return b"LEGACY"
+
+    class _Broken:
+        def render(self, data, *, debug=False):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(characters, "get_card_renderer", lambda: _Broken())
+    app = SimpleNamespace(artwork_service=_Artwork(), renderer=_Legacy())
+
+    with caplog.at_level("ERROR"):
+        png = await characters._render_card_png(
+            app, Character(id="1", name="X"), PlayerInfo(uid="1"), "en")
+
+    assert png == b"LEGACY"
+    assert "[RENDERER] New renderer failed, using fallback renderer" in caplog.text

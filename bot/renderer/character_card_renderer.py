@@ -263,3 +263,14 @@ def _default_font_provider():
         return cache[key]
 
     return font_for
+
+
+_RENDERER: CharacterCardRenderer | None = None
+
+
+def get_card_renderer() -> CharacterCardRenderer:
+    """Shared renderer — the layout and fonts are static, so one instance is reused."""
+    global _RENDERER
+    if _RENDERER is None:
+        _RENDERER = CharacterCardRenderer()
+    return _RENDERER

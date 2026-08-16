@@ -20,6 +20,24 @@ from bot.models.player import PlayerInfo, Showcase
 from bot.utils import callbacks
 
 
+@pytest.fixture
+def new_renders(monkeypatch):
+    """Counts calls to the production (slot-driven) renderer."""
+
+    class _Counter:
+        count = 0
+
+    counter = _Counter()
+
+    class _Stub:
+        def render(self, data, *, debug=False):
+            counter.count += 1
+            return b"PNGDATA"
+
+    monkeypatch.setattr(characters, "get_card_renderer", lambda: _Stub())
+    return counter
+
+
 @pytest.fixture(autouse=True)
 def _clear_cache():
     characters._FILE_IDS._data.clear()
@@ -122,7 +140,7 @@ def _make_update(query):
     return SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
 
 
-async def test_click_character_edits_media_no_new_message():
+async def test_click_character_edits_media_no_new_message(new_renders):
     renderer = _CountingRenderer()
     app = _make_app(renderer)
     ctx = _make_ctx(app)
@@ -134,10 +152,13 @@ async def test_click_character_edits_media_no_new_message():
     assert query.events[0] == "answer"          # answered FIRST
     assert "edit_media" in query.events          # edited in place
     assert query.message.reply_photo_calls == 0  # NO new message
-    assert renderer.renders == 1
+    # The production path now goes through the slot-driven CharacterCardRenderer, so the
+    # legacy renderer must NOT be touched — that is what proves the wiring took effect.
+    assert renderer.renders == 0, "legacy renderer must not serve normal requests"
+    assert new_renders.count == 1
 
 
-async def test_reopening_character_reuses_image_no_rerender():
+async def test_reopening_character_reuses_image_no_rerender(new_renders):
     renderer = _CountingRenderer()
     app = _make_app(renderer)
     ctx = _make_ctx(app)
@@ -146,7 +167,8 @@ async def test_reopening_character_reuses_image_no_rerender():
     await characters.on_callback(_make_update(_FakeQuery(data)), ctx)
     await characters.on_callback(_make_update(_FakeQuery(data)), ctx)
 
-    assert renderer.renders == 1  # second open served from the file_id cache
+    assert new_renders.count == 1  # second open served from the file_id cache
+    assert renderer.renders == 0
 
 
 async def test_back_edits_media_to_banner():

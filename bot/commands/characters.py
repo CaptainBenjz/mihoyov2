@@ -36,6 +36,10 @@ from bot.app_context import AppContext
 from bot.commands.common import get_app, guard, resolve_language, user_id_of, with_action
 from bot.models.character import Character
 from bot.models.player import PlayerInfo, Showcase
+from bot.renderer.card_data import from_character
+from bot.renderer.card_layout import theme_for
+from bot.renderer.character_adjustments import adjustment_for
+from bot.renderer.character_card_renderer import get_card_renderer
 from bot.renderer.context import CharacterCardContext
 from bot.translations.i18n import t
 from bot.utils import callbacks
@@ -300,13 +304,25 @@ async def _render_card_png(app: AppContext, character: Character, player: Player
             app.artwork_service.get_portrait(character),
             app.artwork_service.get_images(icon_urls),
         )
+    # Production path: normalize -> slot-driven renderer -> 1536x864 PNG. The renderer does
+    # no I/O; every asset above is already resolved by the artwork service.
     async with atimed("render.profile_card"):
-        return await asyncio.to_thread(
-            app.renderer.render_profile_card,
-            CharacterCardContext(
-                language=lang, character=character, player=player, portrait=portrait, icons=icons
-            ),
-        )
+        try:
+            data = from_character(
+                character, portrait=portrait, icons=icons,
+                glow=theme_for(character.element)["glow"],
+                adjustment=adjustment_for(character.id),
+            )
+            return await asyncio.to_thread(get_card_renderer().render, data)
+        except Exception:  # noqa: BLE001 - never fail a card on a rendering bug
+            logger.exception("[RENDERER] New renderer failed, using fallback renderer")
+            return await asyncio.to_thread(
+                app.renderer.render_profile_card,
+                CharacterCardContext(
+                    language=lang, character=character, player=player,
+                    portrait=portrait, icons=icons,
+                ),
+            )
 
 
 async def _edit_media(query, photo: str | bytes, caption: str, markup: InlineKeyboardMarkup):
