@@ -206,6 +206,16 @@ class CharacterCardRenderer:
         w = data.weapon
         if w is None:
             return
+        # The reference seats the weapon on a dark disc; the bare template circle is cream,
+        # which leaves light weapon art almost invisible.
+        slot = self._layout.image_slot("weapon-image")
+        if slot is not None:
+            x0, y0, x1, y1 = (round(v * scale) for v in slot.box)
+            disc = Image.new("RGBA", (x1 - x0, y1 - y0), (46, 38, 30, 255))
+            mask = image_fitter._clip_mask((x1 - x0, y1 - y0), "circle")
+            if mask is not None:
+                disc.putalpha(mask)
+            base.alpha_composite(disc, (x0, y0))
         self._image(base, "weapon-image", data.weapon_image, scale)
         self._text(draw, "weapon-name", w.name, INK_DARK, scale)
         self._text(draw, "weapon-rarity", "★" * (w.rarity or 0), GOLD, scale)

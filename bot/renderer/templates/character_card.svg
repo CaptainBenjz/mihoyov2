@@ -42,7 +42,7 @@
       <text id="weapon-rarity" x="445" y="226" data-anchor="middle" data-size="13" data-max-width="90" data-min-size="10" data-weight="400"/>
       <text id="weapon-base-attack" x="565" y="174" data-anchor="start" data-size="17" data-max-width="70" data-min-size="10" data-weight="600"/>
       <text id="weapon-secondary-stat" x="672" y="174" data-anchor="start" data-size="17" data-max-width="80" data-min-size="10" data-weight="600"/>
-      <text id="weapon-level" x="515" y="213" data-anchor="start" data-size="18" data-max-width="150" data-min-size="10" data-weight="400"/>
+      <text id="weapon-level" x="533" y="213" data-anchor="start" data-size="15" data-max-width="150" data-min-size="10" data-weight="400"/>
       <text id="weapon-refinement" x="818" y="177" data-anchor="middle" data-size="17" data-max-width="34" data-min-size="10" data-weight="700"/>
     </g>
 
@@ -61,12 +61,12 @@
     </g>
 
     <g id="talents-slot">
-      <rect id="talent-normal-image" x="406" y="543" width="44" height="44" fill="none" data-fit="contain" data-clip="circle"/>
-      <text id="talent-normal-level" x="428" y="600" data-anchor="middle" data-size="18" data-max-width="50" data-min-size="10" data-weight="700"/>
-      <rect id="talent-skill-image" x="470" y="543" width="44" height="44" fill="none" data-fit="contain" data-clip="circle"/>
-      <text id="talent-skill-level" x="492" y="600" data-anchor="middle" data-size="18" data-max-width="50" data-min-size="10" data-weight="700"/>
-      <rect id="talent-burst-image" x="535" y="543" width="44" height="44" fill="none" data-fit="contain" data-clip="circle"/>
-      <text id="talent-burst-level" x="557" y="600" data-anchor="middle" data-size="18" data-max-width="50" data-min-size="10" data-weight="700"/>
+      <rect id="talent-normal-image" x="406" y="559" width="44" height="44" fill="none" data-fit="contain" data-clip="circle"/>
+      <text id="talent-normal-level" x="428" y="597" data-anchor="middle" data-size="15" data-max-width="50" data-min-size="10" data-weight="700"/>
+      <rect id="talent-skill-image" x="470" y="559" width="44" height="44" fill="none" data-fit="contain" data-clip="circle"/>
+      <text id="talent-skill-level" x="492" y="597" data-anchor="middle" data-size="15" data-max-width="50" data-min-size="10" data-weight="700"/>
+      <rect id="talent-burst-image" x="535" y="559" width="44" height="44" fill="none" data-fit="contain" data-clip="circle"/>
+      <text id="talent-burst-level" x="557" y="597" data-anchor="middle" data-size="15" data-max-width="50" data-min-size="10" data-weight="700"/>
     </g>
 
     <g id="set-bonus-slot">
@@ -81,7 +81,7 @@
       <rect id="artifact-flower-image" x="902" y="67" width="66" height="66" fill="none" data-fit="contain" data-clip="circle"/>
       <text id="artifact-flower-rarity" x="900" y="150" data-anchor="start" data-size="13" data-max-width="80" data-min-size="10" data-weight="400"/>
       <text id="artifact-flower-main-stat" x="988" y="104" data-anchor="start" data-size="13" data-max-width="108" data-min-size="10" data-weight="400"/>
-      <text id="artifact-flower-main-value" x="988" y="125" data-anchor="start" data-size="17" data-max-width="108" data-min-size="10" data-weight="600"/>
+      <text id="artifact-flower-main-value" x="988" y="125" data-anchor="start" data-size="15" data-max-width="108" data-min-size="10" data-weight="600"/>
       <text id="artifact-flower-substat-1-name" x="1105" y="76" data-anchor="start" data-size="13" data-max-width="98" data-min-size="10" data-weight="400"/>
       <text id="artifact-flower-substat-1-value" x="1208" y="76" data-anchor="start" data-size="13" data-max-width="56" data-min-size="10" data-weight="600"/>
       <text id="artifact-flower-substat-2-name" x="1105" y="98" data-anchor="start" data-size="13" data-max-width="98" data-min-size="10" data-weight="400"/>
@@ -95,7 +95,7 @@
       <rect id="artifact-plume-image" x="902" y="182" width="66" height="66" fill="none" data-fit="contain" data-clip="circle"/>
       <text id="artifact-plume-rarity" x="900" y="265" data-anchor="start" data-size="13" data-max-width="80" data-min-size="10" data-weight="400"/>
       <text id="artifact-plume-main-stat" x="988" y="219" data-anchor="start" data-size="13" data-max-width="108" data-min-size="10" data-weight="400"/>
-      <text id="artifact-plume-main-value" x="988" y="240" data-anchor="start" data-size="17" data-max-width="108" data-min-size="10" data-weight="600"/>
+      <text id="artifact-plume-main-value" x="988" y="240" data-anchor="start" data-size="15" data-max-width="108" data-min-size="10" data-weight="600"/>
       <text id="artifact-plume-substat-1-name" x="1105" y="191" data-anchor="start" data-size="13" data-max-width="98" data-min-size="10" data-weight="400"/>
       <text id="artifact-plume-substat-1-value" x="1208" y="191" data-anchor="start" data-size="13" data-max-width="56" data-min-size="10" data-weight="600"/>
       <text id="artifact-plume-substat-2-name" x="1105" y="213" data-anchor="start" data-size="13" data-max-width="98" data-min-size="10" data-weight="400"/>
@@ -109,7 +109,7 @@
       <rect id="artifact-sands-image" x="902" y="297" width="66" height="66" fill="none" data-fit="contain" data-clip="circle"/>
       <text id="artifact-sands-rarity" x="900" y="380" data-anchor="start" data-size="13" data-max-width="80" data-min-size="10" data-weight="400"/>
       <text id="artifact-sands-main-stat" x="988" y="334" data-anchor="start" data-size="13" data-max-width="108" data-min-size="10" data-weight="400"/>
-      <text id="artifact-sands-main-value" x="988" y="355" data-anchor="start" data-size="17" data-max-width="108" data-min-size="10" data-weight="600"/>
+      <text id="artifact-sands-main-value" x="988" y="355" data-anchor="start" data-size="15" data-max-width="108" data-min-size="10" data-weight="600"/>
       <text id="artifact-sands-substat-1-name" x="1105" y="306" data-anchor="start" data-size="13" data-max-width="98" data-min-size="10" data-weight="400"/>
       <text id="artifact-sands-substat-1-value" x="1208" y="306" data-anchor="start" data-size="13" data-max-width="56" data-min-size="10" data-weight="600"/>
       <text id="artifact-sands-substat-2-name" x="1105" y="328" data-anchor="start" data-size="13" data-max-width="98" data-min-size="10" data-weight="400"/>
@@ -123,7 +123,7 @@
       <rect id="artifact-goblet-image" x="902" y="412" width="66" height="66" fill="none" data-fit="contain" data-clip="circle"/>
       <text id="artifact-goblet-rarity" x="900" y="495" data-anchor="start" data-size="13" data-max-width="80" data-min-size="10" data-weight="400"/>
       <text id="artifact-goblet-main-stat" x="988" y="449" data-anchor="start" data-size="13" data-max-width="108" data-min-size="10" data-weight="400"/>
-      <text id="artifact-goblet-main-value" x="988" y="470" data-anchor="start" data-size="17" data-max-width="108" data-min-size="10" data-weight="600"/>
+      <text id="artifact-goblet-main-value" x="988" y="470" data-anchor="start" data-size="15" data-max-width="108" data-min-size="10" data-weight="600"/>
       <text id="artifact-goblet-substat-1-name" x="1105" y="421" data-anchor="start" data-size="13" data-max-width="98" data-min-size="10" data-weight="400"/>
       <text id="artifact-goblet-substat-1-value" x="1208" y="421" data-anchor="start" data-size="13" data-max-width="56" data-min-size="10" data-weight="600"/>
       <text id="artifact-goblet-substat-2-name" x="1105" y="443" data-anchor="start" data-size="13" data-max-width="98" data-min-size="10" data-weight="400"/>
@@ -137,7 +137,7 @@
       <rect id="artifact-circlet-image" x="902" y="527" width="66" height="66" fill="none" data-fit="contain" data-clip="circle"/>
       <text id="artifact-circlet-rarity" x="900" y="610" data-anchor="start" data-size="13" data-max-width="80" data-min-size="10" data-weight="400"/>
       <text id="artifact-circlet-main-stat" x="988" y="564" data-anchor="start" data-size="13" data-max-width="108" data-min-size="10" data-weight="400"/>
-      <text id="artifact-circlet-main-value" x="988" y="585" data-anchor="start" data-size="17" data-max-width="108" data-min-size="10" data-weight="600"/>
+      <text id="artifact-circlet-main-value" x="988" y="585" data-anchor="start" data-size="15" data-max-width="108" data-min-size="10" data-weight="600"/>
       <text id="artifact-circlet-substat-1-name" x="1105" y="536" data-anchor="start" data-size="13" data-max-width="98" data-min-size="10" data-weight="400"/>
       <text id="artifact-circlet-substat-1-value" x="1208" y="536" data-anchor="start" data-size="13" data-max-width="56" data-min-size="10" data-weight="600"/>
       <text id="artifact-circlet-substat-2-name" x="1105" y="558" data-anchor="start" data-size="13" data-max-width="98" data-min-size="10" data-weight="400"/>
