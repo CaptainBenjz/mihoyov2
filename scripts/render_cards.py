@@ -29,6 +29,7 @@ logging.basicConfig(level=logging.ERROR)
 
 OUT = pathlib.Path(__file__).resolve().parent.parent / "tests" / "output"
 CHARACTERS = {
+    "lauma": (10000119, (11191, 11192, 11195)),
     "arlecchino": ARLECCHINO,
     "mavuika": (10000106, (11061, 11062, 11065)),
     "nahida": (10000073, (10731, 10732, 10735)),

@@ -18,9 +18,15 @@ logger = get_logger(__name__)
 TEMPLATE_URL = "https://i.ibb.co/nN35Wwm3/001bf376c130.jpg"
 # Single universal variable font (Latin + Chinese + Japanese kana), OFL licensed.
 FONT_URL = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf"
+# Display serif for names and headings on the character card (variable weight), OFL licensed.
+SERIF_FONT_URL = (
+    "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/cormorantgaramond/"
+    "CormorantGaramond%5Bwght%5D.ttf"
+)
 
 TEMPLATE_REL = ("ui", "character_card_template.jpg")
 FONT_REL = ("fonts", "NotoSansSC.ttf")
+SERIF_FONT_REL = ("fonts", "CormorantGaramond.ttf")
 
 
 def _target(assets_root: Path, rel: tuple[str, str]) -> Path:
@@ -44,12 +50,13 @@ async def _download(session: aiohttp.ClientSession, url: str, dest: Path) -> boo
 
 
 async def ensure_card_assets() -> None:
-    """Ensure the template and font exist locally; download them if missing."""
+    """Ensure the template and fonts exist locally; download them if missing."""
     root = get_settings().assets_path
     headers = {"User-Agent": "Mozilla/5.0 (MihoyoBot)"}
     async with aiohttp.ClientSession(headers=headers) as session:
         await _download(session, TEMPLATE_URL, _target(root, TEMPLATE_REL))
         await _download(session, FONT_URL, _target(root, FONT_REL))
+        await _download(session, SERIF_FONT_URL, _target(root, SERIF_FONT_REL))
 
 
 def template_path() -> Path:
@@ -58,3 +65,7 @@ def template_path() -> Path:
 
 def font_path() -> Path:
     return _target(get_settings().assets_path, FONT_REL)
+
+
+def serif_font_path() -> Path:
+    return _target(get_settings().assets_path, SERIF_FONT_REL)

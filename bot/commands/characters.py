@@ -311,7 +311,7 @@ async def _render_card_png(app: AppContext, character: Character, player: Player
             data = from_character(
                 character, portrait=portrait, icons=icons,
                 glow=theme_for(character.element)["glow"],
-                adjustment=adjustment_for(character.id),
+                adjustment=adjustment_for(character.id), player=player,
             )
             return await asyncio.to_thread(get_card_renderer().render, data)
         except Exception:  # noqa: BLE001 - never fail a card on a rendering bug

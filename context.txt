@@ -72,6 +72,26 @@ KNOWN BUGS (open) — see AUDIT_REPORT.md for full detail
 -------------------------------------------------------------------------------
 FIX HISTORY
 -------------------------------------------------------------------------------
+2026-10-16  Session 11 (character showcase redesign — approved preview implemented):
+  bot/renderer/character_card_renderer.py now draws the whole 1536x864 card in code (no baked
+  template to paint over): botanical hero with splash art, element/weapon tag, serif name,
+  constellation rail (real icons, locked states), level/C/friendship facts; weapon card with
+  R/ATK/secondary chips; 8-row attributes; talents; five artifact rows (+level, main stat,
+  4 substats, CRIT highlighted); set bonus panel (active/inactive per piece count, other sets
+  listed; descriptions only if data provides them); footer with player/UID, CRIT Value and
+  "Built with Passion · Powered by Lauma". Same public API (get_card_renderer().render(data)).
+  - Portrait fit: solid-alpha (>128) bounds scaled to 787px tall, alpha mass centred at x=314;
+    never stretched; character_adjustments.json still applies on top. Icons contain-fit.
+  - Line icons: bot/renderer/icons/*.png (alpha masks, tinted at render time).
+  - Fonts: Cormorant Garamond (serif) added to bootstrap download beside Noto Sans SC.
+  - CardData: additive fields (constellations, player, crit_value, levels, set count/others,
+    max_level, weapon_type). SetInfo.name is now the bare set name (count is its own field).
+  - Bug fix: weapon ATK%/HP%/DEF% secondaries rendered as flat ("41" for 41.3%) in both
+    renderers; only EM is flat. Regression assert added.
+  - slot_manager / templates/character_card.svg / template_source are no longer used by the
+    card renderer (kept; still covered by their own tests).
+  Verified: scripts/render_cards.py (5 chars incl. Lauma) + live Enka UIDs (Kazuha C0, Jean C1,
+  Bennett C6, Ganyu, Yelan, Nahida) rendered and inspected. Full suite 280 passed.
 2026-07-23  Session 10 (fix character-card renderer masking/layering/positioning):
   The live card renderer (bot/renderer/pillow_renderer.py) drew live values over the baked
   template placeholders -> doubling: two Levels, "Lv. Lv. 50", duplicated stars (header/top-

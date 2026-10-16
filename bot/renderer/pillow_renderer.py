@@ -40,8 +40,8 @@ _ELEM_DMG_PROP = {
 # Ascension tier -> max level, matching the game's progression.
 _ASCENSION_MAX_LEVEL = {0: 20, 1: 40, 2: 50, 3: 60, 4: 70, 5: 80, 6: 90}
 
-# Weapon secondary stats that are percentages (everything except flat ATK/HP/DEF/EM).
-_FLAT_SUB_STATS = ("elemental mastery", "atk", "hp", "def")
+# Weapon secondary stats are percentages except EM (Enka names ATK% just "ATK").
+_FLAT_SUB_STATS = ("elemental mastery",)
 
 
 def _weapon_max_level(weapon) -> int:

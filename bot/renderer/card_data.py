@@ -27,7 +27,8 @@ _ELEM_DMG_PROP = {
     "DENDRO": "FIGHT_PROP_GRASS_ADD_HURT",
 }
 _ASCENSION_MAX_LEVEL = {0: 20, 1: 40, 2: 50, 3: 60, 4: 70, 5: 80, 6: 90}
-_FLAT_SUB_STATS = ("elemental mastery", "atk", "hp", "def")
+# Weapon secondary stats are percentages except EM (Enka names ATK% just "ATK").
+_FLAT_SUB_STATS = ("elemental mastery",)
 
 
 def _num(value: float | None) -> str:
@@ -47,6 +48,8 @@ class CharacterInfo:
     level: int = 1
     constellation: int = 0
     friendship: int | None = None
+    max_level: int = 90
+    weapon_type: str = ""
 
 
 @dataclass(slots=True)
@@ -55,6 +58,7 @@ class WeaponInfo:
     rarity: int | None = None
     base_attack: str = ""
     secondary_stat: str = ""
+    secondary_stat_name: str = ""
     level_text: str = ""
     refinement_text: str = ""
 
@@ -62,12 +66,14 @@ class WeaponInfo:
 @dataclass(slots=True)
 class TalentInfo:
     level_text: str = ""
+    level: int = 1
     image: object | None = None
 
 
 @dataclass(slots=True)
 class ArtifactInfo:
     rarity: int | None = None
+    level: int = 0
     main_stat: str = ""
     main_value: str = ""
     substats: list[tuple[str, str]] = field(default_factory=list)
@@ -79,6 +85,15 @@ class SetInfo:
     name: str = ""
     two_piece: str = ""
     four_piece: str = ""
+    image: object | None = None
+    count: int = 0
+    # Any other equipped sets, as (name, pieces), so a 4+1 or 2+2 build is shown honestly.
+    others: list[tuple[str, int]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ConstellationInfo:
+    unlocked: bool = False
     image: object | None = None
 
 
@@ -95,6 +110,7 @@ class StatBlock:
     energy_recharge: str = "--"
     elemental_bonus: str = "--"
     elemental_bonus_name: str = "DMG Bonus"
+    crit_value: str = "--"
 
     def rows(self):
         """(slot-key, value) for the base-stats panel."""
@@ -124,6 +140,9 @@ class CardData:
     talents: dict[str, TalentInfo] = field(default_factory=dict)
     artifacts: dict[str, ArtifactInfo | None] = field(default_factory=dict)
     artifact_set: SetInfo | None = None
+    constellations: list[ConstellationInfo] = field(default_factory=list)
+    player_name: str = ""
+    player_uid: str = ""
     portrait: object | None = None
     weapon_image: object | None = None
     glow: tuple[int, int, int] = (60, 62, 82)
@@ -151,7 +170,7 @@ def _elemental_bonus(stats, element: str | None) -> float:
 
 
 def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
-                   adjustment: Adjustment = DEFAULT_ADJUSTMENT) -> CardData:
+                   adjustment: Adjustment = DEFAULT_ADJUSTMENT, player=None) -> CardData:
     """Adapt a domain character (+ pre-fetched images) into renderer-ready data."""
     icons = icons or {}
     canon = canonical_element(character.element)
@@ -164,6 +183,8 @@ def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
         elemental_bonus=_pct(_elemental_bonus(stats, character.element)),
         # Dynamic per §"ELEMENTAL DAMAGE": never a hardcoded "Pyro DMG Bonus".
         elemental_bonus_name=f"{(canon or 'Elemental').title()} DMG Bonus",
+        # CRIT Value (2 x CRIT Rate + CRIT DMG): derived from the same live stats.
+        crit_value=f"{2 * stats.crit_rate + stats.crit_dmg:.1f}",
     )
 
     weapon = None
@@ -175,13 +196,14 @@ def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
             base_attack=_num(w.main_stat_value) if w.main_stat_value is not None else "",
             secondary_stat=(_weapon_sub_text(w.sub_stat_name, w.sub_stat_value)
                             if w.sub_stat_value is not None else ""),
+            secondary_stat_name=w.sub_stat_name or "",
             level_text=f"Lv. {w.level} / {max_level}",
             refinement_text=f"R{w.refinement}",
         )
 
     talents: dict[str, TalentInfo] = {}
     for name, talent in zip(("normal", "skill", "burst"), character.talents[:3]):
-        talents[name] = TalentInfo(level_text=f"Lv. {talent.level}",
+        talents[name] = TalentInfo(level_text=f"Lv. {talent.level}", level=talent.level,
                                    image=icons.get(talent.icon))
 
     artifacts: dict[str, ArtifactInfo | None] = {}
@@ -193,7 +215,7 @@ def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
             continue
         main = art.main_stat
         artifacts[slot] = ArtifactInfo(
-            rarity=art.rarity,
+            rarity=art.rarity, level=art.level,
             main_stat=(main.name if main else ""),
             main_value=(_pct(main.value) if main and main.is_percent
                         else _num(main.value) if main else ""),
@@ -212,8 +234,11 @@ def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
     artifact_set = None
     if counts:
         best = max(counts, key=counts.get)
-        artifact_set = SetInfo(name=f"{best} ({counts[best]})",
-                               image=icons.get(set_icons.get(best)))
+        artifact_set = SetInfo(
+            name=best, count=counts[best], image=icons.get(set_icons.get(best)),
+            others=sorted(((n, c) for n, c in counts.items() if n != best),
+                          key=lambda item: -item[1]),
+        )
 
     return CardData(
         artifact_set=artifact_set,
@@ -221,7 +246,13 @@ def from_character(character, *, portrait=None, icons=None, glow=(60, 62, 82),
             id=character.id, name=character.name, element=character.element,
             rarity=character.rarity, level=character.level,
             constellation=character.constellation, friendship=character.friendship,
+            max_level=_ASCENSION_MAX_LEVEL.get(character.ascension, character.level),
+            weapon_type=(character.weapon.weapon_type or "") if character.weapon else "",
         ),
+        constellations=[ConstellationInfo(unlocked=n.unlocked, image=icons.get(n.icon))
+                        for n in (character.constellations or [])[:6]],
+        player_name=getattr(player, "nickname", None) or "",
+        player_uid=str(getattr(player, "uid", None) or ""),
         weapon=weapon, stats=block, talents=talents, artifacts=artifacts,
         portrait=portrait,
         weapon_image=icons.get(character.weapon.icon) if character.weapon else None,

@@ -33,6 +33,8 @@ def test_missing_stat_value_does_not_crash():
 def test_weapon_secondary_stat_percent_vs_flat():
     assert _weapon_sub_text("CRIT DMG", 22.1) == "22.1%"
     assert _weapon_sub_text("Elemental Mastery", 165) == "165"
+    # Enka labels ATK%/HP%/DEF% weapon substats without the "%"; they are never flat.
+    assert _weapon_sub_text("ATK", 41.3) == "41.3%"
     assert _weapon_sub_text(None, 22.1) == "22.1%"
 
 
